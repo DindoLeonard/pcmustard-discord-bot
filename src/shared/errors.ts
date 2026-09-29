@@ -42,6 +42,21 @@ export class SameHeroError extends UserInputError {
   }
 }
 
+/** Unknown account, or an account with no public match data (private profile). User-facing message. */
+export class PlayerNotFoundError extends UserInputError {
+  constructor(
+    public readonly accountRef: string,
+    reason: "unknown" | "no_data" = "unknown",
+  ) {
+    super(
+      reason === "unknown"
+        ? `I couldn't find a Dota account for "${accountRef}". Use the Friend ID from their Dota profile (or an OpenDota/Dotabuff link).`
+        : `Account ${accountRef} has no public match data. They need to turn on "Expose Public Match Data" in Dota 2 settings (Options → Social).`,
+    );
+    this.name = "PlayerNotFoundError";
+  }
+}
+
 export class AIUnavailableError extends Error {
   constructor(reason: string, cause?: unknown) {
     super(`AI unavailable: ${reason}`, { cause });

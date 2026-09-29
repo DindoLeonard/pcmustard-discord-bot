@@ -66,6 +66,36 @@ export interface DotaAbility {
   manaCost?: string[];
 }
 
+export interface PlayerProfile {
+  accountId: number;
+  name: string | null;
+  avatarUrl?: string;
+  /** OpenDota rank_tier: tens digit = medal (1 Herald … 8 Immortal), ones digit = stars. */
+  rankTier: number | null;
+  leaderboardRank: number | null;
+  plus: boolean;
+}
+
+export interface PlayerHeroStat {
+  heroId: number;
+  games: number;
+  wins: number;
+  /** Unix seconds; 0 if never. */
+  lastPlayed: number;
+}
+
+export interface PlayerMatch {
+  matchId: number;
+  heroId: number;
+  startTime: number;
+  won: boolean;
+  kills: number;
+  deaths: number;
+  assists: number;
+  /** 1 safe, 2 mid, 3 off, 4 jungle (OpenDota lane_role); null when unparsed. */
+  laneRole: number | null;
+}
+
 export interface DotaDataProvider {
   readonly name: string;
   getHeroes(): Promise<Sourced<DotaHero[]>>;
@@ -76,4 +106,9 @@ export interface DotaDataProvider {
   getItems(): Promise<Sourced<DotaItem[]>>;
   /** Abilities keyed by hero internal name (npc_dota_hero_*). */
   getHeroAbilities(heroName: string): Promise<Sourced<DotaAbility[]>>;
+  /** Throws PlayerNotFoundError for unknown accounts. */
+  getPlayer(accountId: number): Promise<Sourced<PlayerProfile>>;
+  getPlayerWinLoss(accountId: number): Promise<Sourced<{ wins: number; losses: number }>>;
+  getPlayerHeroes(accountId: number): Promise<Sourced<PlayerHeroStat[]>>;
+  getPlayerRecentMatches(accountId: number): Promise<Sourced<PlayerMatch[]>>;
 }

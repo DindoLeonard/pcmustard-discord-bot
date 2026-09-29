@@ -54,6 +54,13 @@ LOG_LEVEL=warn npx tsx $D --text message "I'm Invoker mid against Huskar. What s
 LOG_LEVEL=warn npx tsx $D --text say "mustardbot what counters PA?"
 LOG_LEVEL=warn npx tsx $D --text convo "Dindo>mustardbot I'm Invoker mid vs Huskar, how do I lane?" "Sam>mustardbot what about vs Lion?" "lol nice" "Alex>mustardbot what counters him?"
 LOG_LEVEL=warn npx tsx $D --text cmd forget
+
+# Players, links and scouting. Point links at a scratch file so driver runs never touch data/player-links.json.
+export PLAYER_LINKS_FILE="$TEMP/driver-links.json"
+LOG_LEVEL=warn npx tsx $D --text cmd dota player account=158650393
+DRIVER_USER_ID=777 npx tsx $D --text cmd dota link account=158650393
+DRIVER_USER_ID=555 npx tsx $D --text cmd dota scout enemy1=@777 enemy2=86745912 position=4
+LOG_LEVEL=warn npx tsx $D --text convo "Leo#888>mustardbot what does 158650393 usually play?" "Yel#666>mustardbot unsa man ganahan i-pick ni @777?"
 LOG_LEVEL=warn npx tsx $D autocomplete dota hero hero Inv
 npx tsx $D list
 npx tsx $D live
@@ -65,6 +72,7 @@ npx tsx $D live
 | `component <customId> [value...]` | Clicks a button (no value) or picks from a select menu (value = option value). Copy the custom ID from a previous reply's `[component ...] customId=` line. |
 | `message "<text>"` | An @mention of the bot. Intent parsing, then the same analysis as the slash commands, then **one conversational AI reply** grounded in that data (`messageReply` with `content`, no embeds) plus a `Show full analysis` button (`full:*` custom ID, or `hero:explain:<id>`). Click the button with `component <customId>`. |
 | `convo "Author>text" ...` | Several plain messages in **one process**, posted into the same fake channel, so the shared memory carries over between them. Text must start with a trigger name, or the bot ignores it like real chat. `--text` prints each turn and then the channel memory. This is the only mode that can test follow-ups: separate driver runs are separate processes, and memory lives in-process. |
+| user options | `user=<discordId>` for `/dota player user:`. `DRIVER_USER_ID=<id>` sets who runs `cmd`/`component` (for `/dota link`, `me` and comfort picks). In `convo`, write `Name#<id>>text` to give a speaker a Discord ID. Write mentions as `@777`; the driver converts them to Discord's `<@777>`. |
 | `say "<text>"` | A plain message with no mention. It replies only if the text starts with a `BOT_TRIGGER_NAMES` name. When the bot ignores the message, there are no responses and the exit code is 1. |
 | `autocomplete <command> [sub] <option> [text]` | Focuses `option` with `text` and prints the choices (`name=value`, where the value is the hero id). |
 | `list` | The slash-command JSON that `npm run register` sends. |
@@ -119,7 +127,7 @@ npm run typecheck
 npm test
 ```
 
-Expect 10 files and 122 tests. They cover scoring, team profiles, draft validation and ranking, knowledge-table integrity, OpenAI strict-schema shape, provider parsing, the assistant's hallucination guards (unknown heroes and items dropped), fallbacks, intent planning (including deterministic draft merging and the no-leak guarantee), chat replies, conversation memory and custom IDs. Everything uses fake providers and a fake AI, with no network.
+Expect 11 files and 142 tests. They cover player lookup, scouting and account links (`tests/player.test.ts`), scoring, team profiles, draft validation and ranking, knowledge-table integrity, OpenAI strict-schema shape, provider parsing, the assistant's hallucination guards (unknown heroes and items dropped), fallbacks, intent planning (including deterministic draft merging and the no-leak guarantee), chat replies, conversation memory and custom IDs. Everything uses fake providers and a fake AI, with no network.
 
 After a Dota patch, check that the curated trait table still covers every hero. It should print `missing: []`:
 
@@ -155,6 +163,10 @@ Register it in `src/discord/commands/index.ts`. For a `/dota` subcommand, add it
 - **Two meanings of "position".** For `pick_recommendation` / `why_not_pick` it's the slot still to fill. For `draft_analysis` ("I picked AM pos 5, how should my team adjust?") it's where the player *plays*, so it becomes a team analysis, not a pick list. A `draft_analysis` that continues an earlier *pick* ("they also picked Oracle") re-scores that pick instead. Only `draft`/`message` turns carry a pick slot; `teams` turns never do.
 - **Web search must be forced.** With `tools: [{type: "web_search"}]` alone, gpt-5.4-mini often answers from memory without searching (no `web_search_call`, no citations). `searchWeb()` sends `tool_choice: "required"`, and bumps `reasoning.effort` to at least `low` because search doesn't run at `none`. It uses the **Responses API** (`/v1/responses`), not Chat Completions. Citations arrive as `url_citation` annotations *and* inline `([site](url))` text; `stripInlineCitations()` removes the inline ones and the sources are rendered separately.
 - **Web results never supply Dota stats.** The web prompt forbids hero win, pick and ban rates (CLAUDE.md data rule). "What counters PA?" still goes to OpenDota and the scoring engine, not the web.
+- **Never type `<` in driver arguments on this machine.** `node` and `npx` run through a `cmd.exe` wrapper, which treats `<` as redirection even inside quotes. The failure looks like `The system cannot find the file specified.` or `The syntax of the command is incorrect.` from Bash *and* PowerShell. Use `@777`; the driver rewrites it to `<@777>`. Multi-line `node -e "…"` scripts get mangled the same way, so write a file instead.
+- **Player lookups.** OpenDota returns HTTP 404 *or* an empty 200 shell for unknown accounts, and both become `PlayerNotFoundError`. Private profiles resolve but have no heroes or matches ("Expose Public Match Data"). Wins come from `player_slot < 128` (Radiant) compared with `radiant_win`. Rank tier 45 is **Archon 5** (tens digit = medal: 1 Herald … 8 Immortal).
+- **Scouting is fault-tolerant.** An unlinked @mention, a bad ID or a private profile becomes a "Couldn't scout" row, and the other players still get analysed. Parser quirk: "unsa ganahan i-pick ni @Leo?" can come back as a *draft* intent because of the word "pick". `plan()` reroutes a draft intent that names players but no heroes to `player_lookup` or `scout_players`.
+- **No pings.** The client sets `allowedMentions: { parse: [] }`. Before that, an AI reply containing `<@777>` would have pinged that user.
 - **Languages.** Bisaya/Cebuano and Bislish work end to end: `convo "Yel>mustardbot kumusta ka?"` gets "Okay ra ko…". Testing in Bisaya found two bugs:
   - "kalimti na tanan" got an AI reply *claiming* it forgot while the memory stayed intact. The `FORGET` regex now covers Bisaya and Tagalog, and the `forget_memory` intent clears memory for any other phrasing.
   - The parser set `continuesDraft` on a message that named both teams, which leaked an earlier Anti-Mage into the draft. `mergeLineup` now ignores the old lineup whenever both teams are named.

@@ -132,6 +132,7 @@ const OTHER_GAME: ParsedIntent = {
   allies: [],
   enemies: [],
   removed: [],
+  players: [],
   continuesDraft: false,
 };
 

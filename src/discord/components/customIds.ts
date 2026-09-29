@@ -24,6 +24,9 @@ export const customId = {
   fullTeams: (allyIds: number[], enemyIds: number[]) => `full:teams:${allyIds.join(".")}:${enemyIds.join(".")}`,
   fullWhyNot: (position: Position, allyIds: number[], enemyIds: number[], heroId: number) =>
     `full:whynot:${position}:0:${allyIds.join(".")}:${enemyIds.join(".")}:${heroId}`,
+  //   full:player:<accountId>   full:scout:<pos|0>:<accountIds>   (5 x 10-digit IDs + separators < 100 chars)
+  fullPlayer: (accountId: number) => `full:player:${accountId}`,
+  fullScout: (position: Position | undefined, accountIds: number[]) => `full:scout:${position ?? 0}:${accountIds.join(".")}`,
 };
 
 export const idList = (s: string | undefined) => (s ?? "").split(".").filter((x) => /^\d+$/.test(x));

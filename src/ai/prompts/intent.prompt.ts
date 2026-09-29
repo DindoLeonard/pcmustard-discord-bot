@@ -14,6 +14,8 @@ export const GAME_INTENTS = [
   "dota_news",
   "other_game",
   "web_lookup",
+  "player_lookup",
+  "scout_players",
 ] as const;
 
 export type GameIntent = (typeof GAME_INTENTS)[number];
@@ -36,6 +38,9 @@ export const intentSchema = z.object({
   allies: z.array(z.string()).describe("Allied heroes named in the NEW MESSAGE only (including the player's own already-picked hero)"),
   enemies: z.array(z.string()).describe("Enemy heroes named in the NEW MESSAGE only"),
   removed: z.array(z.string()).describe("Heroes the NEW MESSAGE says were removed/swapped out of the draft being discussed"),
+  players: z
+    .array(z.string())
+    .describe('Dota players referenced in the NEW MESSAGE, copied exactly: account/Friend IDs, profile links, Discord mentions like <@123>, or "me" for the asker'),
   continuesDraft: z.boolean().describe("true if the NEW MESSAGE builds on the draft lineup from CONVERSATION SO FAR"),
 });
 
@@ -53,6 +58,8 @@ Intents:
 - general_strategy: Dota strategy question with no specific heroes, or a Dota question that fits none of the above.
 - forget_memory: the user asks the bot to forget / reset / clear the conversation, in any language ("forget everything", "kalimti na tanan", "kalimutan mo na").
 - small_talk: greetings, thanks, reactions, testing the bot, jokes, or questions about the bot itself, including whether it can search ("hey how are you?", "thanks!", "gg", "can you search?"). game = "dota2".
+- player_lookup: asks about ONE Dota player's account, rank, heroes, or what THEY usually pick/play/like ("unsa ganahan i-pick ni <@123>?", "what does 158650393 main?" - these are about the player, not a draft). Also ("what does 158650393 usually play?", "what heroes does <@123> main?", "what's my rank?" -> players ["me"]). Put the reference in "players".
+- scout_players: asks to scout several enemy players, what they will pick, or what to ban against them ("scout 1234 5678 <@99>", "what should we ban vs these guys"). Put every reference in "players"; set position if they want a pick.
 - web_lookup: a real-world question that needs facts or current information from the web and isn't about a video game: opening/closing hours, addresses, prices, weather, news, events, sports, "what is X" facts ("what time does Anytime Fitness Escario close?", "weather in Cebu today"). game = "dota2".
 - dota_news: Dota 2 facts that change over time and need up-to-date information: patch notes and what changed in a patch, hero/item reworks, new heroes, tournaments (TI, majors), esports results, pro players/teams, news, events, battle pass. game = "dota2".
 - other_game: a question about a different video game (Valheim, Valorant, League, CS2...). Set game "other".

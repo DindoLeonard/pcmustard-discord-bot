@@ -8,10 +8,11 @@ import type { DotaHero } from "../games/dota/providers/dota.provider.js";
 import { pct } from "../games/dota/services/scoring.service.js";
 import { DIMENSION_LABEL } from "../games/dota/services/team.service.js";
 import type { Sourced } from "../games/types/game.js";
-import { ProviderUnavailableError } from "../shared/errors.js";
+import { ProviderUnavailableError, UserInputError } from "../shared/errors.js";
 import { logger } from "../shared/logger.js";
 import type { ChatRequest, DotaAssistant, Grounded } from "./dota.assistant.js";
 import { ConversationMemory, historyBlock, type Turn, type TurnContext } from "./memory.js";
+import type { ResolvedPlayer } from "./playerRefs.js";
 
 /**
  * Natural language is only a front door: the parsed intent becomes the same inputs the slash commands use,
@@ -27,10 +28,20 @@ export const ASK_HELP =
   'Ask me things like "what counters Puck?", "I\'m Invoker mid vs Huskar, what do I do?" or "we have Axe and Lion, they have Storm and Lifestealer, what pos 4 should I pick?"';
 
 /** Where a question came from: memory is shared by everyone in the same channel. */
-export interface Conversation {
+export interface Conversation extends Asker {
   key: string;
   author: string;
 }
+
+/** Who is asking, for "me" and @mention player lookups. */
+export interface Asker {
+  /** Discord user ID of the asker. */
+  userId?: string;
+  /** Display names of users mentioned in the message, by Discord user ID. */
+  names?: Record<string, string>;
+}
+
+export type PlayerResolver = (ref: string, requesterId?: string, nameOf?: (discordUserId: string) => string | undefined) => ResolvedPlayer;
 
 // Whole-message "forget" commands, matched before any AI call: English, Bisaya ("kalimti na tanan") and
 // Tagalog ("kalimutan mo na"). Other phrasings are caught by the parser's forget_memory intent.
@@ -49,6 +60,7 @@ export class AskService {
     private readonly ai: AIService,
     private readonly lookupHero: (query: string) => Promise<Sourced<DotaHero>>,
     readonly memory: ConversationMemory = new ConversationMemory(),
+    private readonly resolvePlayer?: PlayerResolver,
   ) {}
 
   async ask(text: string, conversation?: Conversation): Promise<AskResult> {
@@ -71,14 +83,14 @@ export class AskService {
       return conversation ? this.forget(conversation.key) : { kind: "message", message: "There was nothing to forget." };
     }
 
-    const result = await this.answer(question, intent, turns, conversation?.author);
+    const result = await this.answer(question, intent, turns, conversation?.author, conversation);
     if (conversation) this.remember(conversation, question, result);
     return result;
   }
 
   /** Exposed for tests: everything after intent parsing. */
-  async answer(question: string, intent: ParsedIntent, turns: Turn[] = [], author?: string): Promise<AskResult> {
-    const plan = await this.plan(intent, turns);
+  async answer(question: string, intent: ParsedIntent, turns: Turn[] = [], author?: string, asker: Asker = {}): Promise<AskResult> {
+    const plan = await this.plan(intent, turns, asker);
     if (plan.kind === "message") return { kind: "message", intent, message: plan.message, context: plan.context };
     if (plan.request.kind === "web") return this.answerFromWeb(question, intent, plan.request, turns, author);
 
@@ -146,12 +158,19 @@ export class AskService {
    * Intent -> request. Draft lineups are merged here, deterministically: the parser only reports heroes named
    * in the new message, so heroes from unrelated earlier turns can't leak into a draft.
    */
-  async plan(intent: ParsedIntent, turns: Turn[] = []): Promise<Plan> {
+  async plan(intent: ParsedIntent, turns: Turn[] = [], asker: Asker = {}): Promise<Plan> {
     // Other games and time-sensitive Dota info (patches, tournaments) aren't in our data: look them up.
     if (intent.game !== "dota2" || intent.intent === "other_game") return { kind: "request", request: { kind: "web", topic: "other_game" } };
     if (intent.intent === "dota_news") return { kind: "request", request: { kind: "web", topic: "dota_news" } };
     if (intent.intent === "web_lookup") return { kind: "request", request: { kind: "web", topic: "general" } };
     const position = intent.position !== null && isPosition(intent.position) ? intent.position : undefined;
+
+    // A "draft" question that names players but no heroes is really about those players
+    // (e.g. "unsa ganahan i-pick ni @Leo?" parsed as pick_recommendation because of the word "pick").
+    const draftish = ["pick_recommendation", "draft_analysis", "why_not_pick"].includes(intent.intent);
+    if (draftish && intent.players.length && !intent.allies.length && !intent.enemies.length && !intent.hero) {
+      intent = { ...intent, intent: intent.players.length === 1 ? "player_lookup" : "scout_players" };
+    }
 
     switch (intent.intent) {
       case "counter_character": {
@@ -188,6 +207,35 @@ export class AskService {
           return { kind: "request", request: { kind: "whynot", input, hero: intent.hero } };
         }
         return { kind: "request", request: { kind: "draft", input } };
+      }
+      case "player_lookup":
+      case "scout_players": {
+        if (!this.resolvePlayer) return { kind: "message", message: "Player lookups aren't available right now." };
+        const refs = intent.players.length ? intent.players : intent.intent === "player_lookup" ? ["me"] : [];
+        const nameOf = (id: string) => asker.names?.[id];
+        const enemies: ResolvedPlayer[] = [];
+        const unresolved: { label: string; error: string }[] = [];
+        for (const ref of refs) {
+          try {
+            enemies.push(this.resolvePlayer(ref, asker.userId, nameOf));
+          } catch (err) {
+            if (!(err instanceof UserInputError)) throw err;
+            unresolved.push({ label: ref.slice(0, 40), error: err.message });
+          }
+        }
+        if (intent.intent === "player_lookup") {
+          const first = enemies[0];
+          if (!first) return { kind: "message", message: unresolved[0]?.error ?? "Which player? Give me their Friend ID or an OpenDota/Dotabuff link." };
+          return { kind: "request", request: { kind: "player", accountId: first.accountId, label: first.label } };
+        }
+        if (!enemies.length) return { kind: "message", message: unresolved[0]?.error ?? "Which players should I scout? Give me Friend IDs, links, or @mentions of linked friends." };
+        let myAccountId: number | undefined;
+        try {
+          myAccountId = asker.userId ? this.resolvePlayer("me", asker.userId).accountId : undefined;
+        } catch {
+          myAccountId = undefined; // not linked: no comfort bonus
+        }
+        return { kind: "request", request: { kind: "scout", input: { enemies, unresolved, position, myAccountId } } };
       }
       case "hero_info":
         if (intent.hero) return { kind: "request", request: { kind: "hero", hero: intent.hero } };
@@ -305,6 +353,10 @@ export function summarizeGrounded(g: Grounded): string {
     }
     case "hero":
       return `Hero overview for ${g.hero.data.localizedName}`;
+    case "player":
+      return `Player lookup: ${g.analysis.profile.name ?? g.analysis.profile.accountId} (${g.analysis.rank}), likely ${g.analysis.likelyPicks.slice(0, 3).map((l) => l.hero.localizedName).join(", ")}`;
+    case "scout":
+      return `Scouted ${g.analysis.players.map((p) => p.label).join(", ")}; suggested bans ${g.analysis.bans.slice(0, 3).map((b) => b.hero.localizedName).join(", ") || "none"}`;
     case "general":
       return "General advice";
   }
@@ -345,6 +397,9 @@ export function contextOf(result: AskResult): TurnContext {
     }
     case "hero":
       return { kind: "hero", hero: g.hero.data.localizedName };
+    case "player":
+    case "scout":
+      return { kind: "general" };
     case "general":
       return { kind: "general" };
   }

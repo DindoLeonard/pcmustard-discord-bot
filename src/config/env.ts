@@ -24,6 +24,8 @@ const baseSchema = z.object({
   /** Shared per-channel conversation memory for /ask, @mentions and trigger names. */
   MEMORY_MAX_TURNS: z.coerce.number().int().min(0).max(50).default(6),
   MEMORY_TTL_MINUTES: z.coerce.number().positive().default(30),
+  /** Discord user -> Dota account links (/dota link). */
+  PLAYER_LINKS_FILE: z.string().min(1).default("data/player-links.json"),
 });
 
 const discordSchema = z.object({

@@ -1,4 +1,4 @@
-import { ProviderUnavailableError } from "../../../shared/errors.js";
+import { PlayerNotFoundError, ProviderUnavailableError } from "../../../shared/errors.js";
 import { logger } from "../../../shared/logger.js";
 import type { Sourced } from "../../types/game.js";
 import type {
@@ -10,6 +10,9 @@ import type {
   HeroMatchup,
   ItemPopularity,
   PatchInfo,
+  PlayerHeroStat,
+  PlayerMatch,
+  PlayerProfile,
   PrimaryAttribute,
 } from "./dota.provider.js";
 
@@ -24,6 +27,8 @@ const DEFAULT_TTLS = {
   matchups: 6 * HOUR,
   itemPopularity: 6 * HOUR,
   constants: 24 * HOUR,
+  /** Players change after every match; keep this short. */
+  player: 30 * 60 * 1000,
 };
 
 type FetchFn = typeof fetch;
@@ -75,6 +80,31 @@ interface RawItem {
   cost?: number | null;
 }
 
+interface RawPlayer {
+  profile?: { personaname?: string | null; avatarfull?: string; avatarmedium?: string; plus?: boolean } | null;
+  rank_tier?: number | null;
+  leaderboard_rank?: number | null;
+}
+
+interface RawPlayerHero {
+  hero_id: number | string;
+  games: number;
+  win: number;
+  last_played?: number;
+}
+
+interface RawRecentMatch {
+  match_id: number;
+  player_slot: number;
+  radiant_win: boolean;
+  hero_id: number;
+  start_time: number;
+  kills: number;
+  deaths: number;
+  assists: number;
+  lane_role?: number | null;
+}
+
 interface RawAbility {
   dname?: string;
   desc?: string;
@@ -105,7 +135,7 @@ export class OpenDotaProvider implements DotaDataProvider {
     this.baseUrl = options.baseUrl ?? DEFAULT_BASE_URL;
     this.apiKey = options.apiKey;
     const ttl = options.ttlMs;
-    this.ttls = ttl === undefined ? DEFAULT_TTLS : { heroStats: ttl, patch: ttl, matchups: ttl, itemPopularity: ttl, constants: ttl };
+    this.ttls = ttl === undefined ? DEFAULT_TTLS : { heroStats: ttl, patch: ttl, matchups: ttl, itemPopularity: ttl, constants: ttl, player: ttl };
     this.fetchFn = options.fetchFn ?? fetch;
     this.now = options.now ?? Date.now;
   }
@@ -219,7 +249,63 @@ export class OpenDotaProvider implements DotaDataProvider {
     return promise;
   }
 
-  private async request<T>(path: string): Promise<Sourced<T>> {
+  async getPlayer(accountId: number): Promise<Sourced<PlayerProfile>> {
+    const raw = await this.cached<Sourced<RawPlayer | null>>(`player:${accountId}`, this.ttls.player, () =>
+      this.request<RawPlayer>(`/players/${accountId}`, { notFoundAsNull: true }),
+    );
+    // Unknown IDs come back either as 404 or as an empty shell with no name.
+    if (!raw.data?.profile || (!raw.data.profile.personaname && raw.data.rank_tier == null)) {
+      throw new PlayerNotFoundError(String(accountId));
+    }
+    const p = raw.data.profile;
+    return this.withPatch(raw, {
+      accountId,
+      name: p.personaname ?? null,
+      avatarUrl: p.avatarfull ?? p.avatarmedium ?? undefined,
+      rankTier: raw.data.rank_tier ?? null,
+      leaderboardRank: raw.data.leaderboard_rank ?? null,
+      plus: p.plus === true,
+    });
+  }
+
+  async getPlayerWinLoss(accountId: number): Promise<Sourced<{ wins: number; losses: number }>> {
+    const raw = await this.cached<Sourced<{ win: number; lose: number }>>(`playerWl:${accountId}`, this.ttls.player, () =>
+      this.request(`/players/${accountId}/wl`),
+    );
+    return this.withPatch(raw, { wins: raw.data.win ?? 0, losses: raw.data.lose ?? 0 });
+  }
+
+  async getPlayerHeroes(accountId: number): Promise<Sourced<PlayerHeroStat[]>> {
+    const raw = await this.cached<Sourced<RawPlayerHero[]>>(`playerHeroes:${accountId}`, this.ttls.player, () =>
+      this.request(`/players/${accountId}/heroes`),
+    );
+    const data = raw.data
+      .filter((h) => h.games > 0)
+      .map((h) => ({ heroId: Number(h.hero_id), games: h.games, wins: h.win, lastPlayed: h.last_played ?? 0 }));
+    return this.withPatch(raw, data);
+  }
+
+  async getPlayerRecentMatches(accountId: number): Promise<Sourced<PlayerMatch[]>> {
+    const raw = await this.cached<Sourced<RawRecentMatch[]>>(`playerRecent:${accountId}`, this.ttls.player, () =>
+      this.request(`/players/${accountId}/recentMatches`),
+    );
+    const data = raw.data.map((m) => ({
+      matchId: m.match_id,
+      heroId: m.hero_id,
+      startTime: m.start_time,
+      // player_slot < 128 = Radiant
+      won: (m.player_slot < 128) === m.radiant_win,
+      kills: m.kills,
+      deaths: m.deaths,
+      assists: m.assists,
+      laneRole: m.lane_role ?? null,
+    }));
+    return this.withPatch(raw, data);
+  }
+
+  private async request<T>(path: string, options: { notFoundAsNull: true }): Promise<Sourced<T | null>>;
+  private async request<T>(path: string): Promise<Sourced<T>>;
+  private async request<T>(path: string, options: { notFoundAsNull?: boolean } = {}): Promise<Sourced<T | null>> {
     const url = new URL(this.baseUrl + path);
     if (this.apiKey) url.searchParams.set("api_key", this.apiKey);
 
@@ -232,6 +318,7 @@ export class OpenDotaProvider implements DotaDataProvider {
       throw new ProviderUnavailableError(this.name, err);
     }
     logger.info("provider request", { provider: this.name, path, status: res.status, latencyMs: this.now() - started });
+    if (res.status === 404 && options.notFoundAsNull) return { data: null, source: this.name, fetchedAt: new Date(this.now()) };
     if (!res.ok) throw new ProviderUnavailableError(this.name, new Error(`HTTP ${res.status} for ${path}`));
 
     return { data: (await res.json()) as T, source: this.name, fetchedAt: new Date(this.now()) };

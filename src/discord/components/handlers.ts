@@ -1,11 +1,13 @@
 import { MessageFlags, type ButtonInteraction, type StringSelectMenuInteraction } from "discord.js";
 import { ai } from "../../ai/ai.service.js";
-import { assistant } from "../../assistant/index.js";
+import { assistant, playerLinks } from "../../assistant/index.js";
+import { dota } from "../../games/registry.js";
 import { UserInputError } from "../../shared/errors.js";
 import { renderCounter } from "./counter.render.js";
 import { decodeDraft, idList, parseCustomId, positionArg } from "./customIds.js";
 import { renderDraft, renderTeams, renderWhyNot } from "./draft.render.js";
 import { renderMatchup } from "./matchup.render.js";
+import { renderPlayer, renderScout } from "./player.render.js";
 import { renderHeroExplanation } from "./embeds.js";
 
 type ComponentInteraction = ButtonInteraction | StringSelectMenuInteraction;
@@ -49,6 +51,18 @@ const handlers: Record<string, Handler> = {
     if (!input || !Number.isInteger(heroId)) throw new UserInputError("That button is out of date. Ask again.");
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     await interaction.editReply(renderWhyNot(await assistant.whyNot(input, heroId), ai.model));
+  },
+  "full:player": async (interaction, [accountId]) => {
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    await interaction.editReply(renderPlayer(await dota.players.analyze(Number(accountId))));
+  },
+  "full:scout": async (interaction, [pos, ids]) => {
+    const enemies = idList(ids).map((id) => ({ accountId: Number(id) }));
+    if (!enemies.length) throw new UserInputError("That button is out of date. Ask again.");
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    const position = positionArg(pos);
+    const analysis = await dota.scouts.analyze({ enemies, position, myAccountId: playerLinks.get(interaction.user.id)?.accountId });
+    await interaction.editReply(renderScout(analysis, position));
   },
   "draft:whynot": async (interaction, args) => {
     if (!interaction.isStringSelectMenu()) return;

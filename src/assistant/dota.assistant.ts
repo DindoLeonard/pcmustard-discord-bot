@@ -4,7 +4,10 @@ import { counterContext, counterPrompt, type CounterExplanation } from "../ai/pr
 import { candidateBlock, draftContext, draftPrompt, whyNotPrompt, type DraftExplanation, type WhyNotExplanation } from "../ai/prompts/draft.prompt.js";
 import { heroContext, heroGuessPrompt, heroPrompt, type HeroExplanation } from "../ai/prompts/general.prompt.js";
 import { matchupContext, matchupPrompt, type MatchupExplanation } from "../ai/prompts/matchup.prompt.js";
+import { playerContext, scoutContext } from "../ai/prompts/player.prompt.js";
 import type { WebTopic } from "../ai/prompts/web.prompt.js";
+import type { PlayerAnalysis } from "../games/dota/services/player.service.js";
+import type { ScoutAnalysis, ScoutInput } from "../games/dota/services/scout.service.js";
 import type { DotaAdapter } from "../games/dota/dota.adapter.js";
 import { getKnowledge } from "../games/dota/knowledge/heroTraits.js";
 import { POSITION_LABEL, type Position } from "../games/dota/knowledge/traits.js";
@@ -47,7 +50,9 @@ export type ChatRequest =
   | { kind: "hero"; hero: string }
   | { kind: "general" }
   /** Answered by web search, not our data: other games, Dota news/patch notes. */
-  | { kind: "web"; topic: WebTopic };
+  | { kind: "web"; topic: WebTopic }
+  | { kind: "player"; accountId: number; label?: string }
+  | { kind: "scout"; input: ScoutInput };
 
 /** Deterministic analysis for a chat request plus the text the chat reply is grounded in. */
 export type Grounded = { data: string; patch?: string } & (
@@ -58,6 +63,8 @@ export type Grounded = { data: string; patch?: string } & (
   | { kind: "whynot"; result: WhyNotBase }
   | { kind: "hero"; hero: Sourced<DotaHero> }
   | { kind: "general" }
+  | { kind: "player"; analysis: PlayerAnalysis; label?: string }
+  | { kind: "scout"; analysis: ScoutAnalysis; position?: Position }
 );
 
 export const COUNTER_EXPLAIN_COUNT = 5;
@@ -194,6 +201,14 @@ export class DotaAssistant {
         const { hero } = await this.withHeroGuess(() => this.dota.heroes.resolve(request.hero));
         const abilities = await this.abilities(hero.data);
         return { kind: "hero", hero, data: heroContext(hero.data, getKnowledge(hero.data.localizedName), abilities, patch), patch };
+      }
+      case "player": {
+        const analysis = await this.dota.players.analyze(request.accountId);
+        return { kind: "player", analysis, label: request.label, data: playerContext(analysis, request.label), patch };
+      }
+      case "scout": {
+        const analysis = await this.dota.scouts.analyze(request.input);
+        return { kind: "scout", analysis, position: request.input.position, data: scoutContext(analysis, request.input.position), patch };
       }
       case "general":
       case "web":

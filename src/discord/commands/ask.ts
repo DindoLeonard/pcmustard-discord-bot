@@ -12,6 +12,7 @@ export function interactionConversation(interaction: ChatInputCommandInteraction
   return {
     key: ConversationMemory.key(interaction.guildId, interaction.channelId),
     author: member ?? interaction.user.globalName ?? interaction.user.username,
+    userId: interaction.user.id,
   };
 }
 

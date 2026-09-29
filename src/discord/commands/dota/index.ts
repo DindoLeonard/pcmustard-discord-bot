@@ -4,8 +4,10 @@ import { buildCounterSubcommand, counter } from "./counter.js";
 import { buildDraftSubcommand, draft } from "./draft.js";
 import { buildHeroSubcommand, hero } from "./hero.js";
 import { buildMatchupSubcommand, matchup } from "./matchup.js";
+import { buildLinkSubcommand, buildPlayerSubcommand, buildUnlinkSubcommand, link, player, unlink } from "./player.js";
+import { buildScoutSubcommand, scout } from "./scout.js";
 
-const subcommands: Record<string, Subcommand> = { hero, counter, matchup, draft };
+const subcommands: Record<string, Subcommand> = { hero, counter, matchup, draft, player, scout, link, unlink };
 
 export const dotaCommand: Command = {
   data: new SlashCommandBuilder()
@@ -14,7 +16,11 @@ export const dotaCommand: Command = {
     .addSubcommand(buildHeroSubcommand)
     .addSubcommand(buildCounterSubcommand)
     .addSubcommand(buildMatchupSubcommand)
-    .addSubcommand(buildDraftSubcommand),
+    .addSubcommand(buildDraftSubcommand)
+    .addSubcommand(buildPlayerSubcommand)
+    .addSubcommand(buildScoutSubcommand)
+    .addSubcommand(buildLinkSubcommand)
+    .addSubcommand(buildUnlinkSubcommand),
   async execute(interaction) {
     const name = interaction.options.getSubcommand();
     const sub = subcommands[name];

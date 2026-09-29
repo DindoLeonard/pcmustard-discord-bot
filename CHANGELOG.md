@@ -7,6 +7,17 @@ The version lives in `package.json`. Bump it with `npm version <patch|minor|majo
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-09-29
+
+### Added
+- `/dota player`: a player's rank, record, most played heroes, last 10 matches and **likely picks**, looked up by Friend ID, Steam ID64, an OpenDota/Dotabuff/Steam link, `me`, or a linked Discord user.
+- `/dota link` / `/dota unlink`: link your own Discord account to your Dota account (saved in `data/player-links.json`). You can only link yourself.
+- `/dota scout`: scout up to 5 enemy players. You get their likely picks, suggested bans, and (with a position) picks against their likely heroes, with a bonus for heroes you play well if you're linked.
+- The same features work in chat: "mustardbot what does 158650393 usually play?", "what's my rank?", "scout @Leo and 86745912, what pos 4?", "unsa ganahan i-pick ni @Leo?".
+
+### Fixed
+- Bot messages can no longer ping users, roles or @everyone.
+
 ## [1.1.0] - 2026-09-29
 
 ### Added

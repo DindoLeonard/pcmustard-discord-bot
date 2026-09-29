@@ -39,10 +39,11 @@ Built and working (Phases 1–4 and 6, plus parts of 5):
 - Deterministic scoring for counters and drafts, with typed reasons. The AI explains results and never ranks them.
 - Natural language through @mentions, the `mustardbot` trigger name and `/ask`. It gives conversational replies grounded in data, with a "Show full analysis" button, plus small talk.
 - Shared per-channel conversation memory with `forget`; deterministic draft follow-ups ("they also picked Oracle", "why not X?").
-- Web search (OpenAI `web_search` tool) for other games and Dota news, with sources listed under the reply.
+- Web search (OpenAI `web_search` tool) for other games, Dota news and everyday lookups, with sources listed under the reply.
+- Player features: `/dota player`, `/dota link`/`unlink`, `/dota scout` (likely picks, bans, and picks against scouted players with a comfort bonus from your own pool). Links are stored in `data/player-links.json`.
 - Fallbacks: data-only embeds when the AI fails, and general advice (labelled) when OpenDota is down.
 
-Not built yet: Redis/Postgres, STRATZ, persistent draft-session commands, `/dota build|items|player|meta`, a second game adapter, per-user rate limiting.
+Not built yet: Redis/Postgres, STRATZ, persistent draft-session commands, `/dota build|items|meta`, a second game adapter, per-user rate limiting.
 
 How to run, drive and test the bot: see `.claude/skills/run-discord-bot-dota/SKILL.md` (the driver exercises real handlers without Discord).
 
@@ -854,7 +855,9 @@ type GameIntent =
   | "forget_memory"       // "forget everything" in any language -> actually clears memory
   | "dota_news"           // patch notes, tournaments, news -> web search
   | "other_game"          // a different video game -> web search
-  | "web_lookup";         // everyday real-world facts: opening hours, places, weather, news -> web search
+  | "web_lookup"          // everyday real-world facts: opening hours, places, weather, news -> web search
+  | "player_lookup"       // one player's rank / heroes / what they pick ("me", Friend ID, link, @linked user)
+  | "scout_players";      // several enemy players: likely picks, bans, picks against them
 ```
 
 Planned later: `item_recommendation`, `build_recommendation`.
@@ -1106,7 +1109,14 @@ The bot may still provide general strategic advice, but it should clearly distin
 
 5. Cache game API responses to avoid unnecessary requests.
 
-6. Web search rules:
+6. Player data rules:
+
+- Player stats come only from OpenDota and only work for public profiles ("Expose Public Match Data"). Explain this when there's no data.
+- A Discord user can only be linked to a Dota account by themselves (`/dota link`). Never link or look up someone by @mention unless they linked themselves.
+- "Likely picks" are estimates from match history (recent form weighted above all-time), and must be labelled as a guess, not a prediction.
+- Bot messages must never ping anyone: the client sets `allowedMentions: { parse: [] }`.
+
+7. Web search rules:
 
 - Use web search only when configured data providers can't answer: questions about other games, time-sensitive Dota information (patch notes, hero reworks, tournaments, esports results, news), and everyday real-world lookups (opening hours, addresses, weather, news).
 - The bot must describe its own abilities truthfully. The chat prompt is told whether web search is enabled, so "can you search?" gets an honest answer.
@@ -1240,6 +1250,9 @@ WEB_SEARCH_TIMEOUT_MS=45000
 # Conversation memory
 MEMORY_MAX_TURNS=6           # 0 disables memory
 MEMORY_TTL_MINUTES=30
+
+# Player links (/dota link)
+PLAYER_LINKS_FILE=data/player-links.json
 
 LOG_LEVEL=info
 ```

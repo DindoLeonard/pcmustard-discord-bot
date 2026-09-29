@@ -27,6 +27,13 @@ const argv = process.argv.slice(2);
 const textMode = argv.includes("--text");
 const [mode, ...args] = argv.filter((a) => a !== "--text");
 const BOT_USER_ID = "100000000000000001";
+const DRIVER_USER_ID = process.env.DRIVER_USER_ID ?? "0";
+
+/**
+ * Write user mentions as "@777" on the command line; the driver turns them into Discord's "<@777>".
+ * (On this machine `node`/`npx` go through cmd.exe, which treats a literal "<" as redirection even when quoted.)
+ */
+const toMentions = (s) => s.replace(/(^|\s)@(\d{2,20})\b/g, "$1<@$2>");
 
 function usage(msg) {
   if (msg) console.error(`error: ${msg}`);
@@ -57,6 +64,11 @@ function makeOptions({ subcommand, values, focused }) {
     getInteger: num,
     getNumber: num,
     getBoolean: (n, r) => (get(n, r) == null ? null : get(n, r) === "true"),
+    // user=<discordUserId> for user options
+    getUser: (n, r) => {
+      const id = get(n, r);
+      return id == null ? null : { id: String(id), username: `user${id}`, globalName: `user${id}`, displayName: `user${id}` };
+    },
     getFocused: (full = false) =>
       full ? { name: focused?.name, value: focused?.value ?? "", type: ApplicationCommandOptionType.String, focused: true } : (focused?.value ?? ""),
   };
@@ -85,10 +97,12 @@ function makeInteraction({ type, commandName, options, componentType, customId, 
     values,
     componentType,
     createdTimestamp: Date.now(),
-    user: { id: "0", username: "driver" },
+    // DRIVER_USER_ID sets who is "running" the command (for /dota link, "me", comfort picks).
+    user: { id: DRIVER_USER_ID, username: "driver", globalName: "driver", displayName: "driver" },
+    guild: null,
     guildId: "driver-guild",
     channelId: "driver-channel",
-    client: { ws: { ping: -1 } },
+    client: { ws: { ping: -1 }, users: { cache: new Map() } },
     deferred: false,
     replied: false,
     responded: false,
@@ -131,7 +145,7 @@ function splitPositional(rest) {
   const values = {};
   for (const a of rest) {
     const eq = a.indexOf("=");
-    if (eq > 0) values[a.slice(0, eq)] = a.slice(eq + 1);
+    if (eq > 0) values[a.slice(0, eq)] = toMentions(a.slice(eq + 1));
     else positional.push(a);
   }
   return { positional, values };
@@ -190,16 +204,24 @@ async function runComponent(rest) {
 const triggerNames = () => (process.env.BOT_TRIGGER_NAMES ?? "mustardbot").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
 
 /** Post one message into the fake channel "driver-guild:driver-channel" as `author`. */
+/**
+ * Post one message into the fake channel "driver-guild:driver-channel". `author` may be "Name" or "Name#<discordId>"
+ * (the id matters for /dota link, "me" and comfort picks; default id = DRIVER_USER_ID for the "driver" author).
+ */
 async function postMessage(text, { mention, author = "driver" }) {
   const { handleMessage } = await import("../../../src/discord/client.js");
   const captured = [];
+  const [name, id] = author.includes("#") ? author.split("#") : [author, author === "driver" ? DRIVER_USER_ID : `user-${author}`];
+  const content = mention ? `<@${BOT_USER_ID}> ${toMentions(text)}` : toMentions(text);
+  // Every <@id> in the text is a mentioned user, like Discord's message.mentions.users.
+  const mentioned = [...content.matchAll(/<@!?(\d+)>/g)].map((m) => m[1]);
   const message = {
-    content: mention ? `<@${BOT_USER_ID}> ${text}` : text,
+    content,
     guildId: "driver-guild",
     channelId: "driver-channel",
-    author: { id: `user-${author}`, bot: false, username: author, globalName: author },
-    member: { displayName: author },
-    mentions: { users: new Map(mention ? [[BOT_USER_ID, { id: BOT_USER_ID }]] : []) },
+    author: { id, bot: false, username: name, globalName: name },
+    member: { displayName: name },
+    mentions: { users: new Map(mentioned.map((uid) => [uid, { id: uid, username: `user${uid}`, globalName: `user${uid}` }])), members: new Map() },
     channel: {
       async sendTyping() {
         captured.push({ kind: "typing" });

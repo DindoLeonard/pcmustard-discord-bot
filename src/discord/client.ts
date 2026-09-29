@@ -132,12 +132,16 @@ export async function handleMessage(message: Message, botUserId: string, trigger
     const result = await askService.ask(text, {
       key: ConversationMemory.key(message.guildId, message.channelId),
       author: message.member?.displayName ?? message.author.globalName ?? message.author.username,
+      userId: message.author.id,
+      names: Object.fromEntries(
+        [...message.mentions.users.values()].map((u) => [u.id, message.mentions.members?.get(u.id)?.displayName ?? u.globalName ?? u.username]),
+      ),
     });
-    await message.reply({ ...renderAsk(result), allowedMentions: { repliedUser: false } });
+    await message.reply({ ...renderAsk(result), allowedMentions: { parse: [], repliedUser: false } });
     logger.info("mention handled", { kind: result.kind, intent: "intent" in result ? result.intent?.intent : undefined, latencyMs: Date.now() - started });
   } catch (err) {
     (isExpected(err) ? logger.warn : logger.error)("mention failed", { latencyMs: Date.now() - started, error: err });
-    await message.reply({ content: userMessageFor(err), allowedMentions: { repliedUser: false } }).catch(() => undefined);
+    await message.reply({ content: userMessageFor(err), allowedMentions: { parse: [], repliedUser: false } }).catch(() => undefined);
   }
 }
 
@@ -147,7 +151,8 @@ export function createClient(triggerNames: string[] = []): Client {
   // (must also be switched on under Developer Portal -> Bot -> Privileged Gateway Intents).
   const intents = [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages];
   if (triggerNames.length) intents.push(GatewayIntentBits.MessageContent);
-  const client = new Client({ intents });
+  // Never ping anyone: replies can contain AI-written text and user-supplied names/mentions.
+  const client = new Client({ intents, allowedMentions: { parse: [], repliedUser: false } });
   client.once(Events.ClientReady, (c) =>
     logger.info("discord ready", { version: VERSION, user: c.user.tag, guilds: c.guilds.cache.size, ai: ai.model ?? "off", triggerNames }),
   );

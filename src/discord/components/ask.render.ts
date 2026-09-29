@@ -7,6 +7,7 @@ import { customId } from "./customIds.js";
 import { renderDraft, renderTeams, renderWhyNot } from "./draft.render.js";
 import { renderHero, type ReplyPayload } from "./embeds.js";
 import { renderMatchup } from "./matchup.render.js";
+import { renderPlayer, renderScout } from "./player.render.js";
 
 const ids = (heroes: { id: number }[]) => heroes.map((h) => h.id);
 
@@ -27,6 +28,12 @@ export function fullAnalysisId(g: Grounded): string | null {
     }
     case "hero":
       return customId.heroExplain(g.hero.data.id);
+    case "player":
+      return customId.fullPlayer(g.analysis.profile.accountId);
+    case "scout": {
+      const scouted = g.analysis.players.filter((p) => p.accountId > 0).map((p) => p.accountId);
+      return scouted.length ? customId.fullScout(g.position, scouted) : null;
+    }
     case "general":
       return null;
   }
@@ -66,6 +73,10 @@ function renderGrounded(g: Grounded): ReplyPayload {
       return renderWhyNot({ ...base, ...g.result }, null);
     case "hero":
       return renderHero(g.hero, true);
+    case "player":
+      return renderPlayer(g.analysis, { linkedTo: g.label && g.label !== "you" ? g.label : undefined });
+    case "scout":
+      return renderScout(g.analysis, g.position);
     case "general":
       return { content: "I couldn't answer that right now. Try again in a moment.", embeds: [], components: [] };
   }

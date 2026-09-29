@@ -1,6 +1,6 @@
 # MustardBot — Dota 2 AI Assistant for Discord
 
-**Version 1.1.0** · see [CHANGELOG.md](CHANGELOG.md) for what's in each release.
+**Version 1.2.0** · see [CHANGELOG.md](CHANGELOG.md) for what's in each release.
 
 A Discord bot that helps with Dota 2: counters, lane matchups, draft picks, and plain-English questions. It answers like a knowledgeable friend in chat, but its recommendations come from **real match data and a scoring engine**, not from the AI's imagination.
 
@@ -22,6 +22,7 @@ MustardBot: Go Mirana. She fits pos 4 perfectly here and lines up well into all 
 - **Natural language**: @mention the bot, start a message with `mustardbot`, or use `/ask`. You get a short conversational answer with a **Show full analysis** button for the detailed breakdown.
 - **Shared conversation memory**: everyone in a channel shares one conversation, so follow-ups work across friends ("what about vs Lion?", "they also picked Oracle", "why not Earthshaker?"). `mustardbot forget` or `/forget` clears it.
 - **Web search**: questions about other games (e.g. Valheim) and current Dota news or patch notes are looked up on the web, with sources listed under the answer.
+- **Players and scouting**: `/dota player` shows anyone's rank, heroes and likely picks (from a Friend ID or profile link). `/dota scout` predicts what enemy players will pick, suggests bans, and recommends picks against them. `/dota link` connects your own account so `me` and @mentions work.
 - **Hero name help**: autocomplete, nicknames (`storm`, `am`, `wr`), typo tolerance, and AI guesses for descriptions ("the fat guy with the hook" → Pudge).
 
 ## How it stays accurate
@@ -88,6 +89,10 @@ npm run build && npm start
 | `/dota matchup my_hero:<hero> enemy_hero:<hero> [position]` | How to play your hero against a specific enemy |
 | `/dota draft position:<1-5> [ally1..ally4] [enemy1..enemy5] [rank]` | Team analysis and pick recommendations for your open position |
 | `/dota hero hero:<hero>` | Hero overview, stats by bracket, and playstyle and counters buttons |
+| `/dota player [account] [user]` | A player's rank, record, most played heroes, recent matches and likely picks (default: your linked account) |
+| `/dota link account:<Friend ID>` | Link **your own** Dota account, so `me` works and friends can @mention you |
+| `/dota unlink` | Remove your link |
+| `/dota scout enemy1..enemy5 [position] [rank]` | Scout enemy players: likely picks, suggested bans, and picks against them for your position |
 | `/ask question:<text>` | Ask anything in plain English |
 | `/forget` | Clear the bot's conversation memory for this channel |
 | `/ping` | Check that the bot is alive |
@@ -100,6 +105,8 @@ mustardbot what counters PA?
 mustardbot i accidentally picked am pos 5, what should my team do?
 mustardbot what changed in the latest dota patch?
 mustardbot do you know valheim? what armor for the swamp?
+mustardbot what does 158650393 usually play?
+mustardbot scout @Leo and 86745912, what pos 4 should I pick?
 mustardbot forget
 ```
 
@@ -124,6 +131,7 @@ All settings live in `.env` (see `.env.example`). They're validated when the bot
 | `WEB_SEARCH_TIMEOUT_MS` | `45000` | Timeout for web searches |
 | `MEMORY_MAX_TURNS` | `6` | Exchanges remembered per channel (`0` disables memory) |
 | `MEMORY_TTL_MINUTES` | `30` | A channel's memory is forgotten after this long with no messages |
+| `PLAYER_LINKS_FILE` | `data/player-links.json` | Where `/dota link` saves Discord → Dota account links |
 | `OPENDOTA_API_KEY` | — | Optional; raises OpenDota rate limits |
 | `LOG_LEVEL` | `info` | `debug` / `info` / `warn` / `error` |
 

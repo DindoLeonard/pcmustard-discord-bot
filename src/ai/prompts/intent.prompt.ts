@@ -10,6 +10,7 @@ export const GAME_INTENTS = [
   "hero_info",
   "general_strategy",
   "small_talk",
+  "forget_memory",
   "dota_news",
   "other_game",
 ] as const;
@@ -49,11 +50,13 @@ Intents:
 - why_not_pick: asks why a specific hero wasn't recommended, or how it compares, for the draft being discussed ("why not Earthshaker?", "is Lich ok instead?"). "hero" = that hero.
 - hero_info: asks about one hero in general ("how do I play Puck").
 - general_strategy: Dota strategy question with no specific heroes, or a Dota question that fits none of the above.
+- forget_memory: the user asks the bot to forget / reset / clear the conversation, in any language ("forget everything", "kalimti na tanan", "kalimutan mo na").
 - small_talk: greetings, thanks, reactions, testing the bot, jokes, questions about the bot itself, or anything off-topic that isn't about a video game ("hey how are you?", "thanks!", "gg", "what's the weather"). game = "dota2".
 - dota_news: Dota 2 facts that change over time and need up-to-date information: patch notes and what changed in a patch, hero/item reworks, new heroes, tournaments (TI, majors), esports results, pro players/teams, news, events, battle pass. game = "dota2".
 - other_game: a question about a different video game (Valheim, Valorant, League, CS2...). Set game "other".
 
 Rules:
+- Messages may be in any language or a mix: Bisaya/Cebuano, Tagalog, Taglish/Bislish, English. Understand them the same way (e.g. "unsa may counter sa PA?" = what counters PA; "naa mi Axe" = we have Axe; "sila kay Storm" = they have Storm). Hero names stay in English.
 - Expand common nicknames to full names when obvious (storm -> Storm Spirit, ls -> Lifestealer, wr -> Windranger, am -> Anti-Mage) but otherwise copy hero names as written.
 - Positions: carry/safelane=1, mid=2, offlane=3, soft support/roamer=4, hard support=5. If they say "support" without detail, use 5 for picks and null otherwise.
 - "we/our/my team" and the player's own pick are allies; "they/them/enemy" heroes are enemies.
@@ -63,7 +66,7 @@ Rules:
 Follow-ups (when CONVERSATION SO FAR is given):
 - Several friends share this conversation. A new message may continue what anyone asked earlier.
 - Single-hero references may be resolved from the most recent relevant turn: "what about vs Lion?" after a matchup keeps the player's hero (set "hero") and changes "enemy"; "only supports" / "for pos 4" after a counter keeps "hero" and sets position; "what counters him?" uses the hero just discussed.
-- continuesDraft = true when the message adds to, changes, or asks about the draft being discussed ("they also picked Oracle", "pos 4", "why not Lich?", "we swapped Lion for Lich" -> enemies/allies [Lich], removed [Lion]). If the message starts a new lineup or is unrelated, continuesDraft = false.
+- continuesDraft = true when the message adds to, changes, or asks about the draft being discussed ("they also picked Oracle", "pos 4", "why not Lich?", "we swapped Lion for Lich" -> enemies/allies [Lich], removed [Lion]). If the message starts a new lineup or is unrelated, continuesDraft = false. A message that lists heroes for BOTH teams is a new lineup (continuesDraft = false), even if a draft was discussed before.
 - If the message is unrelated to earlier turns, ignore the history.`;
 
 export function intentPrompt(text: string, history = ""): AIRequest<ParsedIntent> {

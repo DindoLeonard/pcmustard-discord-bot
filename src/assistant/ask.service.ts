@@ -32,7 +32,10 @@ export interface Conversation {
   author: string;
 }
 
-const FORGET = /^(please\s+)?(forget|reset|clear)(\s+(it|that|this|everything|all|memory|the conversation|our conversation|chat))*[\s.!]*$/i;
+// Whole-message "forget" commands, matched before any AI call: English, Bisaya ("kalimti na tanan") and
+// Tagalog ("kalimutan mo na"). Other phrasings are caught by the parser's forget_memory intent.
+const FORGET =
+  /^(please\s+)?(forget|reset|clear|kalimti|kalimte|kalimtan|limti|limtan|kalimutan)(\s+(it|that|this|everything|all|memory|the conversation|our conversation|chat|na|tanan|to|ni|ang|atong|istorya|mo|lahat|usapan))*[\s.!]*$/i;
 
 /** Web answers list at most this many sources under the reply. */
 export const MAX_SOURCES = 3;
@@ -61,6 +64,11 @@ export class AskService {
     if (!parsed.ok) return { kind: "message", message: "I couldn't understand that right now. Try the /dota commands instead." };
     const intent = parsed.data;
     logger.info("intent parsed", { intent: intent.intent, game: intent.game, continuesDraft: intent.continuesDraft, historyTurns: turns.length });
+
+    // Never claim to forget without actually doing it, whatever language it was asked in.
+    if (intent.intent === "forget_memory") {
+      return conversation ? this.forget(conversation.key) : { kind: "message", message: "There was nothing to forget." };
+    }
 
     const result = await this.answer(question, intent, turns, conversation?.author);
     if (conversation) this.remember(conversation, question, result);
@@ -176,6 +184,8 @@ export class AskService {
       case "hero_info":
         if (intent.hero) return { kind: "request", request: { kind: "hero", hero: intent.hero } };
         break;
+      case "forget_memory":
+        return { kind: "message", message: "There was nothing to forget." };
       case "general_strategy":
       case "small_talk":
         // Both become a plain chat reply with no stats; the chat prompt handles tone.
@@ -186,7 +196,10 @@ export class AskService {
 
   /** Previous lineup (if the message continues it) minus removed heroes plus newly named ones, deduped by hero. */
   private async mergeLineup(intent: ParsedIntent, turns: Turn[]): Promise<{ allies: string[]; enemies: string[]; pickPosition?: Position }> {
-    const base = intent.continuesDraft ? lastLineup(turns) : undefined;
+    // Naming heroes for both teams is a fresh lineup, even if the parser thought it continued an earlier one
+    // (seen: an earlier Anti-Mage question leaking AM into a new "we have Axe and Lion, they have Storm" draft).
+    const restatesBothTeams = intent.allies.length > 0 && intent.enemies.length > 0;
+    const base = intent.continuesDraft && !restatesBothTeams ? lastLineup(turns) : undefined;
     const removed = new Set(await this.canonical(intent.removed));
     // Earlier heroes survive unless removed; heroes named now are always included ("swap Lion for Lich").
     const merge = async (previous: string[] = [], added: string[]) =>

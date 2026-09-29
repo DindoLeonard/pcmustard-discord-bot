@@ -142,7 +142,15 @@ describe("AskService memory", () => {
     expect(reply.user).toContain("Bob asks:\nwhy?");
   });
 
-  it.each(["forget", "Forget everything!", "reset", "clear the conversation", "please forget that"])("'%s' clears the channel without calling the AI", async (phrase) => {
+  it("clears memory when the parser detects a forget request in any language (never just claims to)", async () => {
+    const { svc } = service({ ...COUNTER_PUCK, intent: "forget_memory", hero: null });
+    await svc.memory.add("g:c", { author: "Alice", question: "q", answer: "a", context: { kind: "general" } });
+    const res = await svc.ask("pwede nimo kalimtan atong istorya?", bob);
+    expect(res).toMatchObject({ kind: "message", message: expect.stringMatching(/forgotten/) });
+    expect(svc.memory.get("g:c")).toEqual([]);
+  });
+
+  it.each(["forget", "Forget everything!", "reset", "clear the conversation", "please forget that", "kalimti na tanan", "Kalimti!", "kalimutan mo na lahat"])("'%s' clears the channel without calling the AI", async (phrase) => {
     const { svc, rec } = service(COUNTER_PUCK);
     await svc.ask("what counters puck", alice);
     const calls = rec.prompts.length;

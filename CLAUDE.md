@@ -822,6 +822,9 @@ Rules:
 - The intent parser never merges draft lineups: it reports heroes named in the new message plus `removed` and `continuesDraft`, and code does the merge. This prevents heroes from unrelated earlier turns leaking into a draft.
 - "Position" means the slot to fill for `pick_recommendation` / `why_not_pick`, but the player's own position for `draft_analysis` ("I picked AM pos 5, how should my team adjust?" is a team analysis, not a pick list).
 - Small talk gets a brief friendly reply with no data. Other games and time-sensitive Dota info go to web search.
+- Any language works (tested with Bisaya/Cebuano and Bislish). The parser understands it, and replies use the user's language and style, with game names kept in English.
+- A message that names heroes for both teams always starts a fresh lineup, even if the parser says it continues a draft. This stops an earlier question's heroes leaking in.
+- The bot must never *say* it forgot without clearing memory. "Forget" is matched by a regex (English, Bisaya, Tagalog) and by the `forget_memory` intent.
 
 ## Conversation memory (implemented)
 
@@ -848,6 +851,7 @@ type GameIntent =
   | "hero_info"           // how to play hero X
   | "general_strategy"    // Dota strategy without specific heroes
   | "small_talk"          // greetings, thanks, off-topic chat
+  | "forget_memory"       // "forget everything" in any language -> actually clears memory
   | "dota_news"           // patch notes, tournaments, news -> web search
   | "other_game";         // a different video game -> web search
 ```

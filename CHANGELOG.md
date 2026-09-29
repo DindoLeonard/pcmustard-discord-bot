@@ -5,6 +5,16 @@ MAJOR for breaking changes (renamed commands, changed `.env` settings), MINOR fo
 
 The version lives in `package.json`. Bump it with `npm version <patch|minor|major> --no-git-tag-version`.
 
+## [Unreleased]
+
+### Added
+- Chat in Bisaya/Cebuano, Tagalog or mixed Bislish/Taglish: the bot understands it and replies in the same language.
+- "Forget" works in Bisaya and Tagalog ("kalimti na tanan", "kalimutan mo na") and in any other phrasing.
+
+### Fixed
+- The bot no longer claims it forgot the conversation without actually clearing its memory.
+- A new lineup that names both teams no longer picks up heroes from an earlier, unrelated question.
+
 ## [1.0.0] - 2026-09-29
 
 First stable release.

@@ -91,6 +91,17 @@ describe("AskService.plan", () => {
     expect(dup).toMatchObject({ request: { input: { enemies: ["Storm Spirit"] } } });
   });
 
+  it("starts a fresh lineup when the message names both teams, even if the parser says it continues", async () => {
+    const { svc } = setup();
+    // Earlier: someone's Anti-Mage team question. Now: "naa mi Axe ug Lion, sila kay Storm ug Lifestealer. pos 4?"
+    const history = [turn({ kind: "teams", allies: ["Anti-Mage"], enemies: [] })];
+    const plan = await svc.plan(
+      intent({ intent: "pick_recommendation", allies: ["Invoker", "Zeus"], enemies: ["Storm Spirit"], position: 4, continuesDraft: true }),
+      history,
+    );
+    expect(plan).toMatchObject({ request: { kind: "draft", input: { allies: ["Invoker", "Zeus"], enemies: ["Storm Spirit"] } } });
+  });
+
   it("completes a half-asked draft when the position arrives", async () => {
     const { svc } = setup();
     const asked = await svc.plan(intent({ intent: "pick_recommendation", allies: ["Invoker"], enemies: ["Puck"] }));

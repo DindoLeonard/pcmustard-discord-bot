@@ -119,7 +119,7 @@ npm run typecheck
 npm test
 ```
 
-Expect 10 files and 114 tests. They cover scoring, team profiles, draft validation and ranking, knowledge-table integrity, OpenAI strict-schema shape, provider parsing, the assistant's hallucination guards (unknown heroes and items dropped), fallbacks, intent planning (including deterministic draft merging and the no-leak guarantee), chat replies, conversation memory and custom IDs. Everything uses fake providers and a fake AI, with no network.
+Expect 10 files and 119 tests. They cover scoring, team profiles, draft validation and ranking, knowledge-table integrity, OpenAI strict-schema shape, provider parsing, the assistant's hallucination guards (unknown heroes and items dropped), fallbacks, intent planning (including deterministic draft merging and the no-leak guarantee), chat replies, conversation memory and custom IDs. Everything uses fake providers and a fake AI, with no network.
 
 After a Dota patch, check that the curated trait table still covers every hero. It should print `missing: []`:
 
@@ -155,6 +155,9 @@ Register it in `src/discord/commands/index.ts`. For a `/dota` subcommand, add it
 - **Two meanings of "position".** For `pick_recommendation` / `why_not_pick` it's the slot still to fill. For `draft_analysis` ("I picked AM pos 5, how should my team adjust?") it's where the player *plays*, so it becomes a team analysis, not a pick list. A `draft_analysis` that continues an earlier *pick* ("they also picked Oracle") re-scores that pick instead. Only `draft`/`message` turns carry a pick slot; `teams` turns never do.
 - **Web search must be forced.** With `tools: [{type: "web_search"}]` alone, gpt-5.4-mini often answers from memory without searching (no `web_search_call`, no citations). `searchWeb()` sends `tool_choice: "required"`, and bumps `reasoning.effort` to at least `low` because search doesn't run at `none`. It uses the **Responses API** (`/v1/responses`), not Chat Completions. Citations arrive as `url_citation` annotations *and* inline `([site](url))` text; `stripInlineCitations()` removes the inline ones and the sources are rendered separately.
 - **Web results never supply Dota stats.** The web prompt forbids hero win, pick and ban rates (CLAUDE.md data rule). "What counters PA?" still goes to OpenDota and the scoring engine, not the web.
+- **Languages.** Bisaya/Cebuano and Bislish work end to end: `convo "Yel>mustardbot kumusta ka?"` gets "Okay ra ko…". Testing in Bisaya found two bugs:
+  - "kalimti na tanan" got an AI reply *claiming* it forgot while the memory stayed intact. The `FORGET` regex now covers Bisaya and Tagalog, and the `forget_memory` intent clears memory for any other phrasing.
+  - The parser set `continuesDraft` on a message that named both teams, which leaked an earlier Anti-Mage into the draft. `mergeLineup` now ignores the old lineup whenever both teams are named.
 - **Chat replies aren't item-validated.** The embeds drop item names that aren't in OpenDota's list, but free-form chat text isn't checked, and the model occasionally names removed items (seen: "Orb of Venom").
 - **Adding an `AskResult` kind**: `summarize`, `contextOf` and `renderAsk` are exhaustive switches, so the typechecker points at every place you need to handle it.
 - **Regex in template literals:** `\s` inside a `` `...` `` string becomes a plain `s`. Write `\\s` when building a `new RegExp(`...`)`. (Doing it wrong left stray spaces where mentions were removed.)

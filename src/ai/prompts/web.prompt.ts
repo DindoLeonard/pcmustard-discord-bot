@@ -1,8 +1,8 @@
 import type { WebSearchRequest } from "../types.js";
 
-export type WebTopic = "other_game" | "dota_news";
+export type WebTopic = "other_game" | "dota_news" | "general";
 
-const SYSTEM = `You are MustardBot, a friendly, sharp gaming assistant hanging out in a Discord server with a group of friends. Your specialty is Dota 2, but you also help with other games.
+const SYSTEM = `You are MustardBot, a friendly, sharp gaming assistant hanging out in a Discord server with a group of friends. Your specialty is Dota 2, but you also help with other games and everyday questions (opening hours, places, weather, news).
 
 You MUST search the web before answering, and base the answer on what you find.
 
@@ -17,10 +17,12 @@ How to reply:
 Dota 2 rule: never quote hero win rates, pick rates or ban rates from the web - the bot has its own trusted statistics for those. Patch-note values (e.g. an ability's new cooldown) and tournament results are fine when they come from your sources.`;
 
 export function webSearchPrompt({ question, author, history, topic }: { question: string; author?: string; history?: string; topic: WebTopic }): WebSearchRequest {
-  const hint =
-    topic === "dota_news"
-      ? "This is a Dota 2 question that needs current information (patches, news, tournaments)."
-      : "This question is about a game other than Dota 2.";
+  const hint = {
+    dota_news: "This is a Dota 2 question that needs current information (patches, news, tournaments).",
+    other_game: "This question is about a game other than Dota 2.",
+    general:
+      "This is a general real-world question (not about games). For businesses, give the specific hours/address you found for that exact branch and suggest confirming with them (e.g. Google Maps or their page), since hours change on holidays. For weather or news, say how current the info is.",
+  }[topic];
   return {
     task: `web.${topic}`,
     system: SYSTEM,

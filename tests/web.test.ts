@@ -175,6 +175,27 @@ describe("web answers in chat", () => {
     }
   });
 
+  it("routes everyday lookups (hours, weather) to web search", async () => {
+    const { svc, fake } = service(FOUND);
+    const lookup = { ...OTHER_GAME, game: "dota2" as const, intent: "web_lookup" as const };
+    expect(await svc.plan(lookup)).toMatchObject({ request: { kind: "web", topic: "general" } });
+    await svc.answer("what time does anytime fitness escario close?", lookup);
+    expect(fake.calls).toEqual(["web.general"]);
+  });
+
+  it("says so when a web answer came back without source links", async () => {
+    const { svc } = service({ ...FOUND, sources: [] });
+    const res = await svc.answer("weather in cebu?", { ...OTHER_GAME, game: "dota2", intent: "web_lookup" });
+    expect(renderAsk(res).content).toMatch(/\n-# Found with a web search, but no source links came back/);
+  });
+
+  it("tells the chat model truthfully whether it can search", async () => {
+    const { chatPrompt } = await import("../src/ai/prompts/chat.prompt.js");
+    expect(chatPrompt({ question: "can you search?", data: "", webSearchAvailable: true }).system).toMatch(/you CAN search the web/);
+    expect(chatPrompt({ question: "can you search?", data: "", webSearchAvailable: false }).system).toMatch(/web search is currently switched off/);
+    expect(chatPrompt({ question: "x", data: "" }).system).not.toContain("{{CAPABILITIES}}");
+  });
+
   it("reports availability", () => {
     expect(new AIService(new FakeSearchAI(FOUND), true).webSearchAvailable).toBe(true);
     expect(new AIService(new FakeSearchAI(FOUND), false).webSearchAvailable).toBe(false);

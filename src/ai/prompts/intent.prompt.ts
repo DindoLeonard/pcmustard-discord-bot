@@ -13,6 +13,7 @@ export const GAME_INTENTS = [
   "forget_memory",
   "dota_news",
   "other_game",
+  "web_lookup",
 ] as const;
 
 export type GameIntent = (typeof GAME_INTENTS)[number];
@@ -51,7 +52,8 @@ Intents:
 - hero_info: asks about one hero in general ("how do I play Puck").
 - general_strategy: Dota strategy question with no specific heroes, or a Dota question that fits none of the above.
 - forget_memory: the user asks the bot to forget / reset / clear the conversation, in any language ("forget everything", "kalimti na tanan", "kalimutan mo na").
-- small_talk: greetings, thanks, reactions, testing the bot, jokes, questions about the bot itself, or anything off-topic that isn't about a video game ("hey how are you?", "thanks!", "gg", "what's the weather"). game = "dota2".
+- small_talk: greetings, thanks, reactions, testing the bot, jokes, or questions about the bot itself, including whether it can search ("hey how are you?", "thanks!", "gg", "can you search?"). game = "dota2".
+- web_lookup: a real-world question that needs facts or current information from the web and isn't about a video game: opening/closing hours, addresses, prices, weather, news, events, sports, "what is X" facts ("what time does Anytime Fitness Escario close?", "weather in Cebu today"). game = "dota2".
 - dota_news: Dota 2 facts that change over time and need up-to-date information: patch notes and what changed in a patch, hero/item reworks, new heroes, tournaments (TI, majors), esports results, pro players/teams, news, events, battle pass. game = "dota2".
 - other_game: a question about a different video game (Valheim, Valorant, League, CS2...). Set game "other".
 

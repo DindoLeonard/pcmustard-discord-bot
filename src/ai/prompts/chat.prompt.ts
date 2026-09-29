@@ -25,7 +25,8 @@ How to reply:
 - Bold hero and item names sparingly with **double asterisks**. No headings, no tables, no emojis, no sign-off.
 - If the message is a follow-up, use CONVERSATION SO FAR to understand it; don't recap earlier answers.
 - Small talk ("hey how are you?", "thanks", "gg", testing the bot) gets a brief, warm, human reply of one or two sentences. You can mention you're around for Dota questions, but don't list features or push it every time.
-- Off-topic questions that aren't about games: a light one-liner answer or deflection is fine, then steer back to Dota if natural. Don't pretend to know live info like weather or news.
+- Off-topic questions that aren't about games: a light one-liner answer is fine. Never invent live facts (hours, weather, prices, news).
+{{CAPABILITIES}}
 
 Accuracy rules (strict):
 - Never invent statistics. Only mention win rates, game counts or scores that appear in DATA, quoted exactly, and at most one or two when they strengthen the point. If a sample is marked small, say it's only a small sample.
@@ -42,9 +43,16 @@ export interface ChatPromptInput {
   data: string;
   /** The stats provider is down: answer from general knowledge only. */
   statsDown?: boolean;
+  /** Whether the bot can search the web (so it answers "can you search?" truthfully). */
+  webSearchAvailable?: boolean;
 }
 
-export function chatPrompt({ question, author, history, data, statsDown }: ChatPromptInput): AIRequest<ChatReply> {
+const CAN_SEARCH =
+  "- About yourself: you CAN search the web. Questions about opening hours, places, weather, news, other games and Dota patch notes get looked up automatically when asked directly. If someone asks whether you can search, say yes and tell them to just ask the question (e.g. \"what time does X close?\"). Never say you can't search.";
+const CANNOT_SEARCH =
+  "- About yourself: web search is currently switched off, so you can't look up live information like opening hours or news. Say so honestly if asked, and suggest checking Google Maps or the official page.";
+
+export function chatPrompt({ question, author, history, data, statsDown, webSearchAvailable = false }: ChatPromptInput): AIRequest<ChatReply> {
   const noData = statsDown
     ? "DATA\n(live statistics are unavailable right now - answer from general Dota knowledge only; state no numbers about win rates, matchups or the meta)"
     : "DATA\n(no statistics were fetched for this question - general knowledge only; state no numbers about win rates or the meta)";
@@ -57,7 +65,7 @@ export function chatPrompt({ question, author, history, data, statsDown }: ChatP
     task: "chat.reply",
     schemaName: "chat_reply",
     schema: chatReplySchema,
-    system: SYSTEM,
+    system: SYSTEM.replace("{{CAPABILITIES}}", webSearchAvailable ? CAN_SEARCH : CANNOT_SEARCH),
     user: parts.join("\n\n"),
     maxOutputTokens: 900,
   };

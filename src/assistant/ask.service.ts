@@ -39,6 +39,7 @@ const FORGET =
 
 /** Web answers list at most this many sources under the reply. */
 export const MAX_SOURCES = 3;
+export const NO_SOURCES_NOTE = "Found with a web search, but no source links came back, so double-check it.";
 
 type Plan = { kind: "request"; request: ChatRequest } | { kind: "message"; message: string; context?: TurnContext };
 
@@ -92,7 +93,7 @@ export class AskService {
       grounded = { kind: "general", data: "" };
       statsDown = true;
     }
-    const res = await this.ai.tryGenerate(chatPrompt({ question, author, history: historyBlock(turns), data: grounded.data, statsDown }));
+    const res = await this.ai.tryGenerate(chatPrompt({ question, author, history: historyBlock(turns), data: grounded.data, statsDown, webSearchAvailable: this.ai.webSearchAvailable }));
     if (!res.ok) {
       if (statsDown) throw new ProviderUnavailableError("opendota");
       return { kind: "fallback", intent, request: plan.request, grounded };
@@ -122,9 +123,15 @@ export class AskService {
     const history = historyBlock(turns);
     if (this.ai.webSearchAvailable) {
       const res = await this.ai.trySearchWeb(webSearchPrompt({ question, author, history, topic: request.topic }));
-      if (res.ok) return { kind: "chat", intent, request, grounded, reply: clipReply(res.data.text), sources: res.data.sources.slice(0, MAX_SOURCES) };
+      if (res.ok) {
+        const sources = res.data.sources.slice(0, MAX_SOURCES);
+        // Some results (e.g. weather widgets) come back without citations: say so rather than show no provenance.
+        const reply = sources.length ? clipReply(res.data.text) : `${clipReply(res.data.text)}\n-# ${NO_SOURCES_NOTE}`;
+        return { kind: "chat", intent, request, grounded, reply, sources };
+      }
     }
-    const fallback = await this.ai.tryGenerate(chatPrompt({ question, author, history, data: "" }));
+    // Search is off or just failed: be honest that this answer comes without a live lookup.
+    const fallback = await this.ai.tryGenerate(chatPrompt({ question, author, history, data: "", webSearchAvailable: false }));
     if (!fallback.ok) return { kind: "message", intent, message: "I couldn't look that up right now. Try again in a moment." };
     return {
       kind: "chat",
@@ -143,6 +150,7 @@ export class AskService {
     // Other games and time-sensitive Dota info (patches, tournaments) aren't in our data: look them up.
     if (intent.game !== "dota2" || intent.intent === "other_game") return { kind: "request", request: { kind: "web", topic: "other_game" } };
     if (intent.intent === "dota_news") return { kind: "request", request: { kind: "web", topic: "dota_news" } };
+    if (intent.intent === "web_lookup") return { kind: "request", request: { kind: "web", topic: "general" } };
     const position = intent.position !== null && isPosition(intent.position) ? intent.position : undefined;
 
     switch (intent.intent) {

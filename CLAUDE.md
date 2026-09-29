@@ -57,7 +57,7 @@ The system should combine:
 1. **Current game data**
 2. **Structured game knowledge**
 3. **AI reasoning and explanation**
-4. **Web search** — only for questions the game data can't answer (other games, Dota patch notes/news/tournaments), always with cited sources
+4. **Web search** — only for questions the game data can't answer (other games, Dota patch notes/news/tournaments, and everyday lookups like opening hours or weather), always with cited sources
 
 The intended architecture is:
 
@@ -853,7 +853,8 @@ type GameIntent =
   | "small_talk"          // greetings, thanks, off-topic chat
   | "forget_memory"       // "forget everything" in any language -> actually clears memory
   | "dota_news"           // patch notes, tournaments, news -> web search
-  | "other_game";         // a different video game -> web search
+  | "other_game"          // a different video game -> web search
+  | "web_lookup";         // everyday real-world facts: opening hours, places, weather, news -> web search
 ```
 
 Planned later: `item_recommendation`, `build_recommendation`.
@@ -1107,7 +1108,9 @@ The bot may still provide general strategic advice, but it should clearly distin
 
 6. Web search rules:
 
-- Use web search only when configured data providers can't answer: questions about other games, and time-sensitive Dota information (patch notes, hero reworks, tournaments, esports results, news).
+- Use web search only when configured data providers can't answer: questions about other games, time-sensitive Dota information (patch notes, hero reworks, tournaments, esports results, news), and everyday real-world lookups (opening hours, addresses, weather, news).
+- The bot must describe its own abilities truthfully. The chat prompt is told whether web search is enabled, so "can you search?" gets an honest answer.
+- If a web answer comes back without citations, say so ("no source links came back, so double-check it") rather than showing it without provenance.
 - Never use web results for Dota win rates, pick rates, ban rates or matchup statistics. Those come only from the data providers.
 - Every web-based answer must show its sources (titles + links) under the reply.
 - If web search is disabled or fails, the bot may answer from the model's general knowledge, but must label it as possibly out of date.

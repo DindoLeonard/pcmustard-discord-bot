@@ -7,12 +7,17 @@ The version lives in `package.json`. Bump it with `npm version <patch|minor|majo
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-09-29
+
 ### Added
 - Chat in Bisaya/Cebuano, Tagalog or mixed Bislish/Taglish: the bot understands it and replies in the same language.
 - "Forget" works in Bisaya and Tagalog ("kalimti na tanan", "kalimutan mo na") and in any other phrasing.
+- Web search for everyday questions: opening hours, addresses, weather, news (e.g. "what time does Anytime Fitness Escario close?").
 
 ### Fixed
 - The bot no longer claims it forgot the conversation without actually clearing its memory.
+- The bot no longer says "I can't search" when web search is enabled.
+- Web answers without source links now say so.
 - A new lineup that names both teams no longer picks up heroes from an earlier, unrelated question.
 
 ## [1.0.0] - 2026-09-29

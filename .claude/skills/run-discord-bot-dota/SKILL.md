@@ -119,7 +119,7 @@ npm run typecheck
 npm test
 ```
 
-Expect 10 files and 119 tests. They cover scoring, team profiles, draft validation and ranking, knowledge-table integrity, OpenAI strict-schema shape, provider parsing, the assistant's hallucination guards (unknown heroes and items dropped), fallbacks, intent planning (including deterministic draft merging and the no-leak guarantee), chat replies, conversation memory and custom IDs. Everything uses fake providers and a fake AI, with no network.
+Expect 10 files and 122 tests. They cover scoring, team profiles, draft validation and ranking, knowledge-table integrity, OpenAI strict-schema shape, provider parsing, the assistant's hallucination guards (unknown heroes and items dropped), fallbacks, intent planning (including deterministic draft merging and the no-leak guarantee), chat replies, conversation memory and custom IDs. Everything uses fake providers and a fake AI, with no network.
 
 After a Dota patch, check that the curated trait table still covers every hero. It should print `missing: []`:
 

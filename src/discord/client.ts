@@ -14,6 +14,7 @@ import { askService } from "../assistant/index.js";
 import { ConversationMemory } from "../assistant/memory.js";
 import { HeroNotFoundError, ProviderUnavailableError, UserInputError } from "../shared/errors.js";
 import { logger } from "../shared/logger.js";
+import { VERSION } from "../shared/version.js";
 import { commands } from "./commands/index.js";
 import { renderAsk } from "./components/ask.render.js";
 import { PROVIDER_UNAVAILABLE_MESSAGE, UNEXPECTED_ERROR_MESSAGE, renderHeroNotFound } from "./components/embeds.js";
@@ -148,7 +149,7 @@ export function createClient(triggerNames: string[] = []): Client {
   if (triggerNames.length) intents.push(GatewayIntentBits.MessageContent);
   const client = new Client({ intents });
   client.once(Events.ClientReady, (c) =>
-    logger.info("discord ready", { user: c.user.tag, guilds: c.guilds.cache.size, ai: ai.model ?? "off", triggerNames }),
+    logger.info("discord ready", { version: VERSION, user: c.user.tag, guilds: c.guilds.cache.size, ai: ai.model ?? "off", triggerNames }),
   );
   client.on(Events.InteractionCreate, (interaction) => {
     handleInteraction(interaction).catch((err) => logger.error("interaction handler crashed", { error: err }));

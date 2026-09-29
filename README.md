@@ -1,5 +1,7 @@
 # MustardBot — Dota 2 AI Assistant for Discord
 
+**Version 1.0.0** · see [CHANGELOG.md](CHANGELOG.md) for what's in each release.
+
 A Discord bot that helps with Dota 2: counters, lane matchups, draft picks, and plain-English questions. It answers like a knowledgeable friend in chat, but its recommendations come from **real match data and a scoring engine**, not from the AI's imagination.
 
 ```text

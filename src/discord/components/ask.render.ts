@@ -7,6 +7,8 @@ import { customId } from "./customIds.js";
 import { renderDraft, renderTeams, renderWhyNot } from "./draft.render.js";
 import { renderHero, type ReplyPayload } from "./embeds.js";
 import { renderMatchup } from "./matchup.render.js";
+import { LIVE_IDS } from "./live.render.js";
+import { renderMatchReview, renderMeta } from "./meta.render.js";
 import { renderPlayer, renderScout } from "./player.render.js";
 
 const ids = (heroes: { id: number }[]) => heroes.map((h) => h.id);
@@ -30,6 +32,10 @@ export function fullAnalysisId(g: Grounded): string | null {
       return customId.heroExplain(g.hero.data.id);
     case "player":
       return customId.fullPlayer(g.analysis.profile.accountId);
+    case "meta":
+      return customId.fullMeta(g.analysis.position, g.analysis.bracket);
+    case "match":
+      return customId.fullMatch(g.review.match.matchId, g.review.focus?.player.accountId ?? undefined);
     case "scout": {
       const scouted = g.analysis.players.filter((p) => p.accountId > 0).map((p) => p.accountId);
       return scouted.length ? customId.fullScout(g.position, scouted) : null;
@@ -77,6 +83,10 @@ function renderGrounded(g: Grounded): ReplyPayload {
       return renderPlayer(g.analysis, { linkedTo: g.label && g.label !== "you" ? g.label : undefined });
     case "scout":
       return renderScout(g.analysis, g.position);
+    case "meta":
+      return renderMeta(g.analysis);
+    case "match":
+      return renderMatchReview(g.review);
     case "general":
       return { content: "I couldn't answer that right now. Try again in a moment.", embeds: [], components: [] };
   }
@@ -86,7 +96,9 @@ function renderGrounded(g: Grounded): ReplyPayload {
 export function renderAsk(result: AskResult): ReplyPayload {
   switch (result.kind) {
     case "chat": {
-      const target = fullAnalysisId(result.grounded);
+      // With a live draft, bans matter but don't fit in a custom ID: the live board's Suggest action has them.
+      const liveBans = result.request.kind === "draft" && result.request.input.bans?.length;
+      const target = liveBans ? LIVE_IDS.suggest : fullAnalysisId(result.grounded);
       const components: ReplyPayload["components"] = target
         ? [
             new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(

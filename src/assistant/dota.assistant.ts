@@ -4,7 +4,10 @@ import { counterContext, counterPrompt, type CounterExplanation } from "../ai/pr
 import { candidateBlock, draftContext, draftPrompt, whyNotPrompt, type DraftExplanation, type WhyNotExplanation } from "../ai/prompts/draft.prompt.js";
 import { heroContext, heroGuessPrompt, heroPrompt, type HeroExplanation } from "../ai/prompts/general.prompt.js";
 import { matchupContext, matchupPrompt, type MatchupExplanation } from "../ai/prompts/matchup.prompt.js";
-import { playerContext, scoutContext } from "../ai/prompts/player.prompt.js";
+import { chatPrompt } from "../ai/prompts/chat.prompt.js";
+import { matchContext, metaContext, playerContext, scoutContext } from "../ai/prompts/player.prompt.js";
+import type { MatchReview, ReviewInput } from "../games/dota/services/match.service.js";
+import type { MetaAnalysis } from "../games/dota/services/meta.service.js";
 import type { WebTopic } from "../ai/prompts/web.prompt.js";
 import type { PlayerAnalysis } from "../games/dota/services/player.service.js";
 import type { ScoutAnalysis, ScoutInput } from "../games/dota/services/scout.service.js";
@@ -52,7 +55,9 @@ export type ChatRequest =
   /** Answered by web search, not our data: other games, Dota news/patch notes. */
   | { kind: "web"; topic: WebTopic }
   | { kind: "player"; accountId: number; label?: string }
-  | { kind: "scout"; input: ScoutInput };
+  | { kind: "scout"; input: ScoutInput }
+  | { kind: "meta"; position?: Position; bracket?: number }
+  | { kind: "match"; match?: string; accountId?: number; playerName?: string };
 
 /** Deterministic analysis for a chat request plus the text the chat reply is grounded in. */
 export type Grounded = { data: string; patch?: string } & (
@@ -65,6 +70,8 @@ export type Grounded = { data: string; patch?: string } & (
   | { kind: "general" }
   | { kind: "player"; analysis: PlayerAnalysis; label?: string }
   | { kind: "scout"; analysis: ScoutAnalysis; position?: Position }
+  | { kind: "meta"; analysis: MetaAnalysis }
+  | { kind: "match"; review: MatchReview }
 );
 
 export const COUNTER_EXPLAIN_COUNT = 5;
@@ -144,6 +151,21 @@ export class DotaAssistant {
     return res.ok ? { ...base, explanation: res.data } : { ...base, explanation: null, aiNote: AI_FAILED_NOTE };
   }
 
+  /** Match review plus a short AI coach summary (null summary when the AI is off or fails). */
+  async matchReview(input: ReviewInput): Promise<{ review: MatchReview; summary?: string }> {
+    const review = await this.dota.matches.review(input);
+    if (!this.ai.available) return { review };
+    const res = await this.ai.tryGenerate(
+      chatPrompt({
+        question: review.focus
+          ? "Give a short coach's summary of how this player did in this match: 2-3 sentences, one thing that went well and one concrete thing to improve."
+          : "Summarize how this match went in 2-3 sentences.",
+        data: matchContext(review),
+      }),
+    );
+    return { review, summary: res.ok ? res.data.reply.slice(0, 1000) : undefined };
+  }
+
   /** Lineup analysis without pick candidates (data only). */
   async teams(input: TeamsInput): Promise<Explained<TeamsAnalysis, never>> {
     const analysis = await this.withHeroGuess(() => this.dota.drafts.analyzeTeams(input));
@@ -209,6 +231,14 @@ export class DotaAssistant {
       case "scout": {
         const analysis = await this.dota.scouts.analyze(request.input);
         return { kind: "scout", analysis, position: request.input.position, data: scoutContext(analysis, request.input.position), patch };
+      }
+      case "meta": {
+        const analysis = await this.dota.meta.analyze({ position: request.position, bracket: request.bracket });
+        return { kind: "meta", analysis, data: metaContext(analysis), patch };
+      }
+      case "match": {
+        const review = await this.dota.matches.review({ match: request.match, accountId: request.accountId, playerName: request.playerName });
+        return { kind: "match", review, data: matchContext(review), patch };
       }
       case "general":
       case "web":

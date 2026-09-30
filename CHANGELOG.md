@@ -7,6 +7,12 @@ The version lives in `package.json`. Bump it with `npm version <patch|minor|majo
 
 ## [Unreleased]
 
+### Added
+- `/dota meta [position] [rank]`: the strongest heroes this patch (win rate adjusted for sample size, at least 1% pick rate), plus the most picked and the most contested in pro games.
+- `/dota match [match] [account] [user]`: match review. It defaults to the linked player's last game and compares their stats with other players of the same hero ("GPM better than 89% of Zeus players"). It lists what went well and what to improve, adds a short AI coach summary, and asks OpenDota to parse unparsed replays so laning data appears on the next run.
+- `/dota live start|ally|enemy|ban|remove|position|suggest|undo|board|end`: a shared live draft board per channel, with Suggest / Undo / End buttons. The newest board replaces the previous one, bans are never suggested, and the draft expires 2 hours after the last change.
+- Chat: "what's the best pos 5 in Archon?", "how did I do last game?", "review match 9021302861", "how did Hadouken do in <match link>?", "unsa ang meta karon sa mid?". Draft questions in chat update the channel's live draft when one is running.
+
 ## [1.2.0] - 2026-09-29
 
 ### Added

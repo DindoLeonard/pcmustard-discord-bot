@@ -1,17 +1,22 @@
 import { MessageFlags, type ButtonInteraction, type StringSelectMenuInteraction } from "discord.js";
 import { ai } from "../../ai/ai.service.js";
-import { assistant, playerLinks } from "../../assistant/index.js";
+import { assistant, liveDrafts, playerLinks } from "../../assistant/index.js";
+import { liveKey } from "../commands/dota/live.js";
 import { dota } from "../../games/registry.js";
 import { UserInputError } from "../../shared/errors.js";
 import { renderCounter } from "./counter.render.js";
 import { decodeDraft, idList, parseCustomId, positionArg } from "./customIds.js";
 import { renderDraft, renderTeams, renderWhyNot } from "./draft.render.js";
+import { renderLiveBoard, renderLiveEnded } from "./live.render.js";
 import { renderMatchup } from "./matchup.render.js";
+import { renderMatchReview, renderMeta } from "./meta.render.js";
 import { renderPlayer, renderScout } from "./player.render.js";
 import { renderHeroExplanation } from "./embeds.js";
 
 type ComponentInteraction = ButtonInteraction | StringSelectMenuInteraction;
 type Handler = (interaction: ComponentInteraction, args: string[]) => Promise<void>;
+
+const clicker = (i: ComponentInteraction) => (i.member && "displayName" in i.member ? i.member.displayName : undefined) ?? i.user.globalName ?? i.user.username;
 
 /**
  * Follow-ups triggered from buttons/menus reply ephemerally to whoever clicked,
@@ -63,6 +68,32 @@ const handlers: Record<string, Handler> = {
     const position = positionArg(pos);
     const analysis = await dota.scouts.analyze({ enemies, position, myAccountId: playerLinks.get(interaction.user.id)?.accountId });
     await interaction.editReply(renderScout(analysis, position));
+  },
+  "full:meta": async (interaction, [pos, bracket]) => {
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    const b = Number(bracket);
+    await interaction.editReply(renderMeta(await dota.meta.analyze({ position: positionArg(pos), bracket: b > 0 ? b : undefined })));
+  },
+  "full:match": async (interaction, [matchId, accountId]) => {
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    const a = Number(accountId);
+    const { review, summary } = await assistant.matchReview({ match: matchId, accountId: a > 0 ? a : undefined });
+    await interaction.editReply(renderMatchReview(review, summary));
+  },
+  // Live draft board buttons act on the channel's draft; Undo/End update the board message in place.
+  "live:suggest": async (interaction) => {
+    const input = liveDrafts.toInput(liveDrafts.require(liveKey(interaction)));
+    await interaction.deferReply();
+    await interaction.editReply(renderDraft(await assistant.draft(input), ai.model));
+  },
+  "live:undo": async (interaction) => {
+    const d = liveDrafts.undo(liveKey(interaction), clicker(interaction));
+    liveDrafts.setBoard(d.key, interaction.message.id);
+    await interaction.update(renderLiveBoard(d));
+  },
+  "live:end": async (interaction) => {
+    const by = clicker(interaction);
+    await interaction.update(renderLiveEnded(liveDrafts.end(liveKey(interaction)), by));
   },
   "draft:whynot": async (interaction, args) => {
     if (!interaction.isStringSelectMenu()) return;

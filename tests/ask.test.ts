@@ -20,6 +20,8 @@ const intent = (over: Partial<ParsedIntent>): ParsedIntent => ({
   enemies: [],
   removed: [],
   players: [],
+  matchId: null,
+  bracket: null,
   continuesDraft: false,
   ...over,
 });

@@ -133,6 +133,8 @@ const OTHER_GAME: ParsedIntent = {
   enemies: [],
   removed: [],
   players: [],
+  matchId: null,
+  bracket: null,
   continuesDraft: false,
 };
 

@@ -43,7 +43,9 @@ Built and working (Phases 1–4 and 6, plus parts of 5):
 - Player features: `/dota player`, `/dota link`/`unlink`, `/dota scout` (likely picks, bans, and picks against scouted players with a comfort bonus from your own pool). Links are stored in `data/player-links.json`.
 - Fallbacks: data-only embeds when the AI fails, and general advice (labelled) when OpenDota is down.
 
-Not built yet: Redis/Postgres, STRATZ, persistent draft-session commands, `/dota build|items|meta`, a second game adapter, per-user rate limiting.
+- `/dota meta` (sample-adjusted strongest, most picked, pro-contested), `/dota match` (a review against same-hero percentiles, requesting a parse for unparsed replays), and `/dota live …` (the shared per-channel draft board with bans, undo and suggestions; chat draft questions update it).
+
+Not built yet: Redis/Postgres (memory and live drafts are in-process), STRATZ, `/dota build|items`, a second game adapter, per-user rate limiting.
 
 How to run, drive and test the bot: see `.claude/skills/run-discord-bot-dota/SKILL.md` (the driver exercises real handlers without Discord).
 
@@ -857,7 +859,9 @@ type GameIntent =
   | "other_game"          // a different video game -> web search
   | "web_lookup"          // everyday real-world facts: opening hours, places, weather, news -> web search
   | "player_lookup"       // one player's rank / heroes / what they pick ("me", Friend ID, link, @linked user)
-  | "scout_players";      // several enemy players: likely picks, bans, picks against them
+  | "scout_players"       // several enemy players: likely picks, bans, picks against them
+  | "meta_query"          // what's strong this patch (position / rank bracket)
+  | "match_review";       // "how did I do last game?" / review match <id> (optionally a player by name)
 ```
 
 Planned later: `item_recommendation`, `build_recommendation`.
@@ -865,6 +869,10 @@ Planned later: `item_recommendation`, `build_recommendation`.
 ---
 
 # Draft Session Feature
+
+**Implemented as `/dota live …`** (`src/assistant/liveDraft.ts`, `src/discord/commands/dota/live.ts`). It works as described below, with these differences: the commands live under `/dota live` (because `/dota draft` is the one-shot analysis), it tracks **bans** (never suggested), the board has Suggest / Undo / End buttons and each update replaces the previous board message, and it is stored **in-process** (TTL 2h after the last change) until Redis is added. Chat draft questions in a channel with a live draft update that draft.
+
+Original design notes:
 
 Later, support persistent drafting inside a Discord channel.
 

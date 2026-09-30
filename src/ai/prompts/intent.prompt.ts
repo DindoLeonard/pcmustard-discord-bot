@@ -16,6 +16,8 @@ export const GAME_INTENTS = [
   "web_lookup",
   "player_lookup",
   "scout_players",
+  "meta_query",
+  "match_review",
 ] as const;
 
 export type GameIntent = (typeof GAME_INTENTS)[number];
@@ -41,6 +43,8 @@ export const intentSchema = z.object({
   players: z
     .array(z.string())
     .describe('Dota players referenced in the NEW MESSAGE, copied exactly: account/Friend IDs, profile links, Discord mentions like <@123>, or "me" for the asker'),
+  matchId: z.string().nullable().describe("Match ID or match link from the NEW MESSAGE for match_review, as written"),
+  bracket: z.number().int().min(1).max(8).nullable().describe("Rank bracket if mentioned: 1 Herald, 2 Guardian, 3 Crusader, 4 Archon, 5 Legend, 6 Ancient, 7 Divine, 8 Immortal"),
   continuesDraft: z.boolean().describe("true if the NEW MESSAGE builds on the draft lineup from CONVERSATION SO FAR"),
 });
 
@@ -60,6 +64,8 @@ Intents:
 - small_talk: greetings, thanks, reactions, testing the bot, jokes, or questions about the bot itself, including whether it can search ("hey how are you?", "thanks!", "gg", "can you search?"). game = "dota2".
 - player_lookup: asks about ONE Dota player's account, rank, heroes, or what THEY usually pick/play/like ("unsa ganahan i-pick ni <@123>?", "what does 158650393 main?" - these are about the player, not a draft). Also ("what does 158650393 usually play?", "what heroes does <@123> main?", "what's my rank?" -> players ["me"]). Put the reference in "players".
 - scout_players: asks to scout several enemy players, what they will pick, or what to ban against them ("scout 1234 5678 <@99>", "what should we ban vs these guys"). Put every reference in "players"; set position if they want a pick.
+- meta_query: what's strong / meta / best heroes right now, optionally for a position or rank ("best pos 5 in Archon right now?", "unsa ang meta karon?"). Set position and bracket if mentioned.
+- match_review: review a played match or "how did I do last game?" ("review my last game", "how did <@123> do in 9021302861?"). Put the player in "players" ("me" if it's the asker) and the match in "matchId" if given.
 - web_lookup: a real-world question that needs facts or current information from the web and isn't about a video game: opening/closing hours, addresses, prices, weather, news, events, sports, "what is X" facts ("what time does Anytime Fitness Escario close?", "weather in Cebu today"). game = "dota2".
 - dota_news: Dota 2 facts that change over time and need up-to-date information: patch notes and what changed in a patch, hero/item reworks, new heroes, tournaments (TI, majors), esports results, pro players/teams, news, events, battle pass. game = "dota2".
 - other_game: a question about a different video game (Valheim, Valorant, League, CS2...). Set game "other".

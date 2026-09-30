@@ -32,14 +32,20 @@ export class DraftService {
   ) {}
 
   async analyze(input: DraftInput, limit = 10): Promise<DraftAnalysis> {
-    const [allies, enemies] = await Promise.all([this.resolveAll(input.allies), this.resolveAll(input.enemies)]);
+    const [allies, enemies, bans] = await Promise.all([
+      this.resolveAll(input.allies),
+      this.resolveAll(input.enemies),
+      this.resolveAll(input.bans ?? []),
+    ]);
     validateDraft(allies, enemies);
+    const banned = new Set(bans.map((h) => h.id));
 
-    const [all, enemyMatchups] = await Promise.all([
+    const [allRaw, enemyMatchups] = await Promise.all([
       this.heroes.list(),
       Promise.all(enemies.map((e) => this.provider.getHeroMatchups(e.id))),
     ]);
     const matchupsByEnemy = new Map(enemies.map((e, i) => [e.id, enemyMatchups[i]!.data]));
+    const all = { ...allRaw, data: allRaw.data.filter((h) => !banned.has(h.id)) };
     const analysis = scoreDraft(input, allies, enemies, all.data, matchupsByEnemy);
     return {
       ...analysis,

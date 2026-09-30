@@ -192,6 +192,8 @@ describe("chat routing for players", () => {
     enemies: [],
     removed: [],
     players: [],
+    matchId: null,
+    bracket: null,
     continuesDraft: false,
     ...over,
   });

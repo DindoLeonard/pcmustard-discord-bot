@@ -27,6 +27,9 @@ export const customId = {
   //   full:player:<accountId>   full:scout:<pos|0>:<accountIds>   (5 x 10-digit IDs + separators < 100 chars)
   fullPlayer: (accountId: number) => `full:player:${accountId}`,
   fullScout: (position: Position | undefined, accountIds: number[]) => `full:scout:${position ?? 0}:${accountIds.join(".")}`,
+  //   full:meta:<pos|0>:<bracket|0>   full:match:<matchId>:<accountId|0>
+  fullMeta: (position?: Position, bracket?: number) => `full:meta:${position ?? 0}:${bracket ?? 0}`,
+  fullMatch: (matchId: number, accountId?: number) => `full:match:${matchId}:${accountId ?? 0}`,
 };
 
 export const idList = (s: string | undefined) => (s ?? "").split(".").filter((x) => /^\d+$/.test(x));

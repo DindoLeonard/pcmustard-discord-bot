@@ -15,6 +15,7 @@
 //   say "<text>"                                 a plain message, no mention (tests BOT_TRIGGER_NAMES, default
 //                                                "mustardbot"); prints no responses and exits 1 when the bot ignores it
 //   convo "Alice>text" "Bob>text" ...             several messages in one process (shared channel memory carries over)
+//   seq "cmd …" "component …" …                 several steps in one process (live drafts / memory carry over)
 //   live                                        log in to Discord with .env credentials, print bot tag, exit
 //
 // --text prints replies as readable text instead of JSON (embeds flattened, customIds listed).
@@ -28,6 +29,8 @@ const textMode = argv.includes("--text");
 const [mode, ...args] = argv.filter((a) => a !== "--text");
 const BOT_USER_ID = "100000000000000001";
 const DRIVER_USER_ID = process.env.DRIVER_USER_ID ?? "0";
+/** Unique fake message ids across a whole run (so `seq` can show boards being replaced). */
+let messageSeq = 0;
 
 /**
  * Write user mentions as "@777" on the command line; the driver turns them into Discord's "<@777>".
@@ -44,7 +47,7 @@ function usage(msg) {
 }
 
 /** Minimal stand-in for CommandInteractionOptionResolver. */
-function makeOptions({ subcommand, values, focused }) {
+function makeOptions({ subcommand, group, values, focused }) {
   const get = (name, required) => {
     if (name in values) return values[name];
     if (required) throw new TypeError(`Required option "${name}" not supplied (pass ${name}=...)`);
@@ -59,7 +62,7 @@ function makeOptions({ subcommand, values, focused }) {
       if (!subcommand && required) throw new TypeError("No subcommand supplied");
       return subcommand ?? null;
     },
-    getSubcommandGroup: () => null,
+    getSubcommandGroup: () => group ?? null,
     getString: (n, r) => get(n, r),
     getInteger: num,
     getNumber: num,
@@ -100,6 +103,15 @@ function makeInteraction({ type, commandName, options, componentType, customId, 
     // DRIVER_USER_ID sets who is "running" the command (for /dota link, "me", comfort picks).
     user: { id: DRIVER_USER_ID, username: "driver", globalName: "driver", displayName: "driver" },
     guild: null,
+    // The channel the board lives in; deletions are recorded so replaced boards show up in the output.
+    channel: {
+      messages: {
+        async delete(id) {
+          captured.push({ kind: "deleteMessage", id });
+        },
+      },
+    },
+    message: { id: "board-message" },
     guildId: "driver-guild",
     channelId: "driver-channel",
     client: { ws: { ping: -1 }, users: { cache: new Map() } },
@@ -129,6 +141,14 @@ function makeInteraction({ type, commandName, options, componentType, customId, 
     async deleteReply() {
       captured.push({ kind: "deleteReply" });
     },
+    // Messages this interaction posted get ids, so boards can be replaced/deleted like on Discord.
+    async fetchReply() {
+      return { id: `msg-${++messageSeq}` };
+    },
+    async update(payload) {
+      this.replied = true;
+      captured.push({ kind: "update", ...serialize(payload) });
+    },
     async followUp(payload) {
       captured.push({ kind: "followUp", ...serialize(payload) });
     },
@@ -155,18 +175,20 @@ async function runCmd(rest) {
   const { commands } = await import("../../../src/discord/commands/index.js");
   const { handleInteraction } = await import("../../../src/discord/client.js");
   const { positional, values } = splitPositional(rest);
-  const [commandName, subcommand] = positional;
+  // cmd dota live start  ->  command "dota", group "live", subcommand "start"
+  const [commandName, groupOrSub, maybeSub] = positional;
+  const [group, subcommand] = maybeSub ? [groupOrSub, maybeSub] : [undefined, groupOrSub];
   if (!commandName) usage("cmd needs a command name");
   if (!commands.has(commandName)) usage(`unknown command "${commandName}" (known: ${[...commands.keys()].join(", ")})`);
 
   const { interaction, captured } = makeInteraction({
     type: InteractionType.ApplicationCommand,
     commandName,
-    options: makeOptions({ subcommand, values }),
+    options: makeOptions({ subcommand, group, values }),
   });
   const started = Date.now();
   await handleInteraction(interaction);
-  return { mode: "cmd", command: commandName, subcommand: subcommand ?? null, options: values, ms: Date.now() - started, responses: captured };
+  return { mode: "cmd", command: commandName, subcommand: [group, subcommand].filter(Boolean).join(" ") || null, options: values, ms: Date.now() - started, responses: captured };
 }
 
 async function runAutocomplete(rest) {
@@ -295,6 +317,7 @@ async function runLive() {
 /** Human-readable rendering of captured responses (for --text). */
 function toText(result) {
   if (result.mode === "list" || result.mode === "live") return JSON.stringify(result, null, 2);
+  if (result.mode === "seq") return result.steps.map((st) => toText(st).replace(/^# [^\n]*/, `# ${st.line} (${st.ms ?? 0}ms)`)).join("\n\n");
   if (result.mode === "convo") {
     const out = result.turns.map((t) => `## ${t.author}: ${t.text} (${t.ms}ms)\n${responsesText(t.responses) || "(ignored - not addressed to the bot)"}`);
     const mem = result.memory.map((m, i) => `${i + 1}. ${m.author}: "${m.question}" -> ${m.answer}`);
@@ -315,7 +338,7 @@ function responsesText(responses) {
       lines.push(`[autocomplete] ${r.choices.map((c) => `${c.name}=${c.value}`).join(", ")}`);
       continue;
     }
-    lines.push(`[${r.kind}${r.ephemeral ? ", ephemeral" : ""}]`);
+    lines.push(`[${r.kind}${r.ephemeral ? ", ephemeral" : ""}${r.id ? ` ${r.id}` : ""}]`);
     if (r.content) lines.push(r.content);
     for (const e of r.embeds ?? []) {
       if (e.title) lines.push(`== ${e.title} ==`);
@@ -333,6 +356,27 @@ function responsesText(responses) {
   return lines.join("\n");
 }
 
+/** Split "cmd dota live ally hero=\"Drow Ranger\"" into args, honouring double quotes. */
+function splitArgs(line) {
+  return [...line.matchAll(/"([^"]*)"|(\S+)/g)].map((m) => (m[1] !== undefined ? m[1] : m[2]).replace(/^(\w+)="(.*)"$/, "$1=$2"));
+}
+
+/**
+ * Several driver commands in ONE process, so in-memory state (live drafts, conversation memory) carries over:
+ *   seq "cmd dota live start position=5" "cmd dota live enemy hero=storm" "component live:suggest"
+ */
+async function runSeq(rest) {
+  if (!rest.length) usage('seq needs commands, e.g. seq "cmd dota live start position=5" "component live:suggest"');
+  const steps = [];
+  for (const line of rest) {
+    const [stepMode, ...stepArgs] = splitArgs(line);
+    const run = { cmd: runCmd, component: runComponent, message: runMessage, say: (r) => runMessage(r, { mention: false }) }[stepMode];
+    if (!run) usage(`seq step "${line}": use cmd, component, message or say`);
+    steps.push({ line, ...(await run(stepArgs)) });
+  }
+  return { mode: "seq", steps };
+}
+
 const runners = {
   cmd: runCmd,
   autocomplete: runAutocomplete,
@@ -340,6 +384,7 @@ const runners = {
   message: runMessage,
   say: (rest) => runMessage(rest, { mention: false }),
   convo: runConvo,
+  seq: runSeq,
   list: runList,
   live: runLive,
 };
@@ -353,7 +398,7 @@ try {
   console.log(textMode ? toText(result) : JSON.stringify(result, null, 2));
   const answered = (responses) => responses?.some((r) => r.kind !== "deferReply" && r.kind !== "typing");
   const replied =
-    result.skipped || result.mode === "list" || result.ok === true || answered(result.responses) || result.turns?.some((t) => answered(t.responses));
+    result.skipped || result.mode === "list" || result.ok === true || answered(result.responses) || result.turns?.some((t) => answered(t.responses)) || result.steps?.some((t) => answered(t.responses));
   process.exitCode = replied ? 0 : 1;
 } catch (err) {
   console.error(err);

@@ -57,6 +57,13 @@ export class PlayerNotFoundError extends UserInputError {
   }
 }
 
+export class MatchNotFoundError extends UserInputError {
+  constructor(public readonly matchRef: string) {
+    super(`I couldn't find match "${matchRef}". Use the match ID from the Dota client, OpenDota or Dotabuff.`);
+    this.name = "MatchNotFoundError";
+  }
+}
+
 export class AIUnavailableError extends Error {
   constructor(reason: string, cause?: unknown) {
     super(`AI unavailable: ${reason}`, { cause });

@@ -8,7 +8,9 @@ import { CounterService } from "./services/counter.service.js";
 import { DraftService } from "./services/draft.service.js";
 import { HeroesService } from "./services/heroes.service.js";
 import { ItemsService } from "./services/items.service.js";
+import { MatchService } from "./services/match.service.js";
 import { MatchupService } from "./services/matchup.service.js";
+import { MetaService } from "./services/meta.service.js";
 import { PlayerService } from "./services/player.service.js";
 import { ScoutService } from "./services/scout.service.js";
 
@@ -27,6 +29,8 @@ export class DotaAdapter implements GameAdapter {
   readonly drafts: DraftService;
   readonly players: PlayerService;
   readonly scouts: ScoutService;
+  readonly meta: MetaService;
+  readonly matches: MatchService;
 
   constructor(provider: DotaDataProvider = new OpenDotaProvider({ apiKey: env.OPENDOTA_API_KEY, baseUrl: env.OPENDOTA_BASE_URL })) {
     this.provider = provider;
@@ -37,6 +41,8 @@ export class DotaAdapter implements GameAdapter {
     this.drafts = new DraftService(provider, this.heroes);
     this.players = new PlayerService(provider, this.heroes);
     this.scouts = new ScoutService(this.players, this.drafts);
+    this.meta = new MetaService(this.heroes);
+    this.matches = new MatchService(provider, this.heroes, this.items);
   }
 
   async resolveCharacter(name: string): Promise<GameCharacter | null> {

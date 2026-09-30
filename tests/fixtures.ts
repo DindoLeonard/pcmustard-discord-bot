@@ -6,12 +6,14 @@ import type {
   DotaItem,
   HeroMatchup,
   ItemPopularity,
+  MatchDetail,
+  MatchPlayer,
   PatchInfo,
   PlayerHeroStat,
   PlayerMatch,
   PlayerProfile,
 } from "../src/games/dota/providers/dota.provider.js";
-import { PlayerNotFoundError } from "../src/shared/errors.js";
+import { MatchNotFoundError, PlayerNotFoundError } from "../src/shared/errors.js";
 
 export const NOW_SEC = Math.floor(Date.now() / 1000);
 let matchId = 1;
@@ -128,6 +130,21 @@ export class FakeDotaProvider implements DotaDataProvider {
     return this.sourced(this.players.get(accountId)?.heroes ?? []);
   }
 
+  /** matchId -> match; `parseRequests` records requestParse calls. */
+  matches = new Map<number, MatchDetail>([[5000000000, FAKE_MATCH]]);
+  parseRequests: number[] = [];
+
+  async getMatch(matchId: number): Promise<Sourced<MatchDetail>> {
+    const m = this.matches.get(matchId);
+    if (!m) throw new MatchNotFoundError(String(matchId));
+    return this.sourced(m);
+  }
+
+  async requestParse(matchId: number): Promise<boolean> {
+    this.parseRequests.push(matchId);
+    return true;
+  }
+
   async getPlayerRecentMatches(accountId: number): Promise<Sourced<PlayerMatch[]>> {
     return this.sourced(this.players.get(accountId)?.recent ?? []);
   }
@@ -149,4 +166,64 @@ export const heroByName = (name: string): DotaHero => {
   const h = HEROES.find((x) => x.localizedName === name);
   if (!h) throw new Error(`fixture hero ${name} missing`);
   return h;
+};
+
+const mp = (over: Partial<MatchPlayer>): MatchPlayer => ({
+  accountId: null,
+  name: null,
+  heroId: 1,
+  isRadiant: true,
+  kills: 2,
+  deaths: 5,
+  assists: 5,
+  gpm: 400,
+  xpm: 500,
+  lastHits: 100,
+  denies: 5,
+  heroDamage: 10000,
+  towerDamage: 500,
+  heroHealing: 0,
+  netWorth: 12000,
+  level: 20,
+  items: [0, 0, 0, 0, 0, 0],
+  neutralItem: null,
+  rankTier: 45,
+  benchmarks: {},
+  ...over,
+});
+
+/** Alice (account 100) plays Zeus on Radiant and wins; strong GPM, weak last hits, lots of deaths. */
+export const FAKE_MATCH: MatchDetail = {
+  matchId: 5000000000,
+  radiantWin: true,
+  duration: 2400,
+  startTime: NOW_SEC - 3600,
+  gameMode: 22,
+  lobbyType: 7,
+  radiantScore: 30,
+  direScore: 20,
+  parsed: false,
+  players: [
+    mp({
+      accountId: 100,
+      name: "Alice",
+      heroId: 22,
+      kills: 12,
+      deaths: 12,
+      assists: 10,
+      heroDamage: 40000,
+      netWorth: 20000,
+      items: [1, 116, 0, 0, 0, 0],
+      benchmarks: { gold_per_min: { raw: 600, pct: 0.9 }, last_hits_per_min: { raw: 2.1, pct: 0.2 }, hero_healing_per_min: { raw: 0, pct: 0.05 } },
+    }),
+    mp({ heroId: 13, kills: 8, deaths: 4, netWorth: 22000 }),
+    mp({ heroId: 17, kills: 5, deaths: 4 }),
+    mp({ heroId: 74, kills: 3, deaths: 3 }),
+    mp({ heroId: 87, kills: 2, deaths: 2 }),
+    mp({ heroId: 21, isRadiant: false, kills: 10 }),
+    mp({ heroId: 54, isRadiant: false, kills: 5 }),
+    mp({ heroId: 59, isRadiant: false, kills: 3 }),
+    mp({ heroId: 53, isRadiant: false, kills: 1 }),
+    mp({ heroId: 107, isRadiant: false, kills: 1 }),
+  ],
 };

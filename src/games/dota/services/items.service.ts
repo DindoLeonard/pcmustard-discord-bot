@@ -30,6 +30,10 @@ export class ItemsService {
     return { valid, rejected };
   }
 
+  async allItems(): Promise<DotaItem[]> {
+    return (await this.provider.getItems()).data;
+  }
+
   async allNames(): Promise<string[]> {
     return (await this.provider.getItems()).data.map((i) => i.name);
   }

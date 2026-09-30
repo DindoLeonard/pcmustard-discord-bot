@@ -61,6 +61,12 @@ LOG_LEVEL=warn npx tsx $D --text cmd dota player account=158650393
 DRIVER_USER_ID=777 npx tsx $D --text cmd dota link account=158650393
 DRIVER_USER_ID=555 npx tsx $D --text cmd dota scout enemy1=@777 enemy2=86745912 position=4
 LOG_LEVEL=warn npx tsx $D --text convo "Leo#888>mustardbot what does 158650393 usually play?" "Yel#666>mustardbot unsa man ganahan i-pick ni @777?"
+
+# Meta, match review, live draft
+LOG_LEVEL=warn npx tsx $D --text cmd dota meta position=5 rank=4
+DRIVER_USER_ID=777 npx tsx $D --text cmd dota match          # last game of the linked account
+LOG_LEVEL=warn npx tsx $D --text cmd dota match match=https://www.dotabuff.com/matches/9021302861
+LOG_LEVEL=warn npx tsx $D --text seq "cmd dota live start position=5" "cmd dota live ally hero=Axe" "cmd dota live enemy hero=storm" "cmd dota live ban hero=Disruptor" "say mustardbot they also picked Oracle, what should I pick?" "component live:undo" "component live:suggest" "cmd dota live end"
 LOG_LEVEL=warn npx tsx $D autocomplete dota hero hero Inv
 npx tsx $D list
 npx tsx $D live
@@ -71,6 +77,7 @@ npx tsx $D live
 | `cmd <command> [sub] [opt=value...]` | Runs a chat-input command. Options are strings; integer options (`position`, `rank`) are parsed. Output: `deferReply` followed by `editReply` (or `deleteReply` + ephemeral `followUp` on error). |
 | `component <customId> [value...]` | Clicks a button (no value) or picks from a select menu (value = option value). Copy the custom ID from a previous reply's `[component ...] customId=` line. |
 | `message "<text>"` | An @mention of the bot. Intent parsing, then the same analysis as the slash commands, then **one conversational AI reply** grounded in that data (`messageReply` with `content`, no embeds) plus a `Show full analysis` button (`full:*` custom ID, or `hero:explain:<id>`). Click the button with `component <customId>`. |
+| `seq "cmd …" "component …" "say …"` | Several driver steps in **one process**, so in-memory state carries over. You need it for the live draft, e.g. `seq "cmd dota live start position=4" "cmd dota live enemy hero=storm" "component live:suggest"`. Group commands are written `cmd dota live ally hero=Axe`. Replaced boards show as `[deleteMessage msg-N]`. |
 | `convo "Author>text" ...` | Several plain messages in **one process**, posted into the same fake channel, so the shared memory carries over between them. Text must start with a trigger name, or the bot ignores it like real chat. `--text` prints each turn and then the channel memory. This is the only mode that can test follow-ups: separate driver runs are separate processes, and memory lives in-process. |
 | user options | `user=<discordId>` for `/dota player user:`. `DRIVER_USER_ID=<id>` sets who runs `cmd`/`component` (for `/dota link`, `me` and comfort picks). In `convo`, write `Name#<id>>text` to give a speaker a Discord ID. Write mentions as `@777`; the driver converts them to Discord's `<@777>`. |
 | `say "<text>"` | A plain message with no mention. It replies only if the text starts with a `BOT_TRIGGER_NAMES` name. When the bot ignores the message, there are no responses and the exit code is 1. |
@@ -127,7 +134,7 @@ npm run typecheck
 npm test
 ```
 
-Expect 11 files and 142 tests. They cover player lookup, scouting and account links (`tests/player.test.ts`), scoring, team profiles, draft validation and ranking, knowledge-table integrity, OpenAI strict-schema shape, provider parsing, the assistant's hallucination guards (unknown heroes and items dropped), fallbacks, intent planning (including deterministic draft merging and the no-leak guarantee), chat replies, conversation memory and custom IDs. Everything uses fake providers and a fake AI, with no network.
+Expect 12 files and 160 tests (`tests/meta-match-live.test.ts` covers meta, match review and the live draft). They cover player lookup, scouting and account links (`tests/player.test.ts`), scoring, team profiles, draft validation and ranking, knowledge-table integrity, OpenAI strict-schema shape, provider parsing, the assistant's hallucination guards (unknown heroes and items dropped), fallbacks, intent planning (including deterministic draft merging and the no-leak guarantee), chat replies, conversation memory and custom IDs. Everything uses fake providers and a fake AI, with no network.
 
 After a Dota patch, check that the curated trait table still covers every hero. It should print `missing: []`:
 
@@ -166,6 +173,9 @@ Register it in `src/discord/commands/index.ts`. For a `/dota` subcommand, add it
 - **Never type `<` in driver arguments on this machine.** `node` and `npx` run through a `cmd.exe` wrapper, which treats `<` as redirection even inside quotes. The failure looks like `The system cannot find the file specified.` or `The syntax of the command is incorrect.` from Bash *and* PowerShell. Use `@777`; the driver rewrites it to `<@777>`. Multi-line `node -e "…"` scripts get mangled the same way, so write a file instead.
 - **Player lookups.** OpenDota returns HTTP 404 *or* an empty 200 shell for unknown accounts, and both become `PlayerNotFoundError`. Private profiles resolve but have no heroes or matches ("Expose Public Match Data"). Wins come from `player_slot < 128` (Radiant) compared with `radiant_win`. Rank tier 45 is **Archon 5** (tens digit = medal: 1 Herald … 8 Immortal).
 - **Scouting is fault-tolerant.** An unlinked @mention, a bad ID or a private profile becomes a "Couldn't scout" row, and the other players still get analysed. Parser quirk: "unsa ganahan i-pick ni @Leo?" can come back as a *draft* intent because of the word "pick". `plan()` reroutes a draft intent that names players but no heroes to `player_lookup` or `scout_players`.
+- **Match review has side effects.** For an unparsed replay, `MatchService.review` POSTs `/request/{id}` to OpenDota. A few minutes later the same match comes back parsed, with lane efficiency, wards and so on. This is real, and it happened to 9021302861 during testing. Match IDs are 6–12 digits, and recent ones are larger than 2^32, which is how chat tells "review match 9021302861" apart from an account ID when the parser misses `matchId`.
+- **Live drafts are per channel and in-process** (`LiveDraftStore`, TTL 2h), so a restart ends them. Each `/dota live` change posts a new board and deletes the previous one (`boardMessageId`); Undo and End update the clicked board in place. Bans can't fit in a button custom ID, so a chat reply during a live draft points its "Show full analysis" button at `live:suggest` instead of `full:draft:…`.
+- **Escapes get mangled in inline scripts.** Writing `\n` or `\S` inside a `cat > x.cjs <<'EOF'` script sometimes arrives as a real newline or a bare `S` in the edited file (seen twice: driver line 318 and `ask.service.ts`). Check with `node --check` or `npm run typecheck` after scripted edits, or make multi-line edits with the editor tool.
 - **No pings.** The client sets `allowedMentions: { parse: [] }`. Before that, an AI reply containing `<@777>` would have pinged that user.
 - **Languages.** Bisaya/Cebuano and Bislish work end to end: `convo "Yel>mustardbot kumusta ka?"` gets "Okay ra ko…". Testing in Bisaya found two bugs:
   - "kalimti na tanan" got an AI reply *claiming* it forgot while the memory stayed intact. The `FORGET` regex now covers Bisaya and Tagalog, and the `forget_memory` intent clears memory for any other phrasing.

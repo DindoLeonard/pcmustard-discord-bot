@@ -129,6 +129,8 @@ export interface DraftInput {
   position: Position;
   /** 1 = Herald ... 8 = Immortal; uses bracket win rates for the meta score when set. */
   bracket?: number;
+  /** Banned heroes: never suggested. */
+  bans?: string[];
 }
 
 export interface TeamsAnalysis {

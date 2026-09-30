@@ -1,7 +1,8 @@
-import { PlayerNotFoundError, ProviderUnavailableError } from "../../../shared/errors.js";
+import { MatchNotFoundError, PlayerNotFoundError, ProviderUnavailableError } from "../../../shared/errors.js";
 import { logger } from "../../../shared/logger.js";
 import type { Sourced } from "../../types/game.js";
 import type {
+  Benchmark,
   BracketStat,
   DotaAbility,
   DotaDataProvider,
@@ -9,6 +10,8 @@ import type {
   DotaItem,
   HeroMatchup,
   ItemPopularity,
+  MatchDetail,
+  MatchPlayer,
   PatchInfo,
   PlayerHeroStat,
   PlayerMatch,
@@ -29,6 +32,8 @@ const DEFAULT_TTLS = {
   constants: 24 * HOUR,
   /** Players change after every match; keep this short. */
   player: 30 * 60 * 1000,
+  /** Matches don't change, but a parse can add data later. */
+  match: 10 * 60 * 1000,
 };
 
 type FetchFn = typeof fetch;
@@ -105,6 +110,90 @@ interface RawRecentMatch {
   lane_role?: number | null;
 }
 
+interface RawMatchPlayer {
+  account_id?: number | null;
+  personaname?: string | null;
+  hero_id: number;
+  player_slot: number;
+  isRadiant?: boolean;
+  kills: number;
+  deaths: number;
+  assists: number;
+  gold_per_min: number;
+  xp_per_min: number;
+  last_hits: number;
+  denies: number;
+  hero_damage?: number;
+  tower_damage?: number;
+  hero_healing?: number;
+  net_worth?: number;
+  level?: number;
+  item_0?: number;
+  item_1?: number;
+  item_2?: number;
+  item_3?: number;
+  item_4?: number;
+  item_5?: number;
+  item_neutral?: number;
+  rank_tier?: number | null;
+  benchmarks?: Record<string, { raw?: number; pct?: number }>;
+  lane_role?: number;
+  lane_efficiency_pct?: number;
+  obs_placed?: number;
+  sen_placed?: number;
+  stuns?: number;
+  teamfight_participation?: number;
+}
+
+interface RawMatch {
+  radiant_win: boolean;
+  duration: number;
+  start_time: number;
+  game_mode: number;
+  lobby_type: number;
+  radiant_score?: number;
+  dire_score?: number;
+  version?: number | null;
+  od_data?: { has_parsed?: boolean };
+  radiant_gold_adv?: number[] | null;
+  players: RawMatchPlayer[];
+}
+
+function normalizeMatchPlayer(p: RawMatchPlayer): MatchPlayer {
+  const benchmarks: Record<string, Benchmark> = {};
+  for (const [k, v] of Object.entries(p.benchmarks ?? {})) {
+    if (typeof v?.raw === "number" && typeof v?.pct === "number") benchmarks[k] = { raw: v.raw, pct: v.pct };
+  }
+  return {
+    accountId: p.account_id ?? null,
+    name: p.personaname ?? null,
+    heroId: p.hero_id,
+    isRadiant: p.isRadiant ?? p.player_slot < 128,
+    kills: p.kills,
+    deaths: p.deaths,
+    assists: p.assists,
+    gpm: p.gold_per_min,
+    xpm: p.xp_per_min,
+    lastHits: p.last_hits,
+    denies: p.denies,
+    heroDamage: p.hero_damage ?? 0,
+    towerDamage: p.tower_damage ?? 0,
+    heroHealing: p.hero_healing ?? 0,
+    netWorth: p.net_worth ?? 0,
+    level: p.level ?? 0,
+    items: [p.item_0, p.item_1, p.item_2, p.item_3, p.item_4, p.item_5].map((i) => i ?? 0),
+    neutralItem: p.item_neutral || null,
+    rankTier: p.rank_tier ?? null,
+    benchmarks,
+    laneRole: p.lane_role,
+    laneEfficiency: p.lane_efficiency_pct,
+    obsPlaced: p.obs_placed,
+    senPlaced: p.sen_placed,
+    stuns: p.stuns,
+    teamfightParticipation: p.teamfight_participation,
+  };
+}
+
 interface RawAbility {
   dname?: string;
   desc?: string;
@@ -135,7 +224,7 @@ export class OpenDotaProvider implements DotaDataProvider {
     this.baseUrl = options.baseUrl ?? DEFAULT_BASE_URL;
     this.apiKey = options.apiKey;
     const ttl = options.ttlMs;
-    this.ttls = ttl === undefined ? DEFAULT_TTLS : { heroStats: ttl, patch: ttl, matchups: ttl, itemPopularity: ttl, constants: ttl, player: ttl };
+    this.ttls = ttl === undefined ? DEFAULT_TTLS : { heroStats: ttl, patch: ttl, matchups: ttl, itemPopularity: ttl, constants: ttl, player: ttl, match: ttl };
     this.fetchFn = options.fetchFn ?? fetch;
     this.now = options.now ?? Date.now;
   }
@@ -301,6 +390,38 @@ export class OpenDotaProvider implements DotaDataProvider {
       laneRole: m.lane_role ?? null,
     }));
     return this.withPatch(raw, data);
+  }
+
+  async getMatch(matchId: number): Promise<Sourced<MatchDetail>> {
+    const raw = await this.cached<Sourced<RawMatch | null>>(`match:${matchId}`, this.ttls.match, () =>
+      this.request<RawMatch>(`/matches/${matchId}`, { notFoundAsNull: true }),
+    );
+    if (!raw.data?.players?.length) throw new MatchNotFoundError(String(matchId));
+    const m = raw.data;
+    return this.withPatch(raw, {
+      matchId,
+      radiantWin: m.radiant_win,
+      duration: m.duration,
+      startTime: m.start_time,
+      gameMode: m.game_mode,
+      lobbyType: m.lobby_type,
+      radiantScore: m.radiant_score ?? 0,
+      direScore: m.dire_score ?? 0,
+      parsed: m.od_data?.has_parsed === true || m.version != null,
+      radiantGoldAdv: m.radiant_gold_adv ?? undefined,
+      players: m.players.map(normalizeMatchPlayer),
+    });
+  }
+
+  async requestParse(matchId: number): Promise<boolean> {
+    try {
+      const res = await this.fetchFn(new URL(`${this.baseUrl}/request/${matchId}${this.apiKey ? `?api_key=${this.apiKey}` : ""}`), { method: "POST" });
+      logger.info("parse requested", { provider: this.name, matchId, status: res.status });
+      return res.ok;
+    } catch (err) {
+      logger.warn("parse request failed", { provider: this.name, matchId, error: err });
+      return false;
+    }
   }
 
   private async request<T>(path: string, options: { notFoundAsNull: true }): Promise<Sourced<T | null>>;

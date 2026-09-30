@@ -12,6 +12,7 @@ import { ProviderUnavailableError, UserInputError } from "../shared/errors.js";
 import { logger } from "../shared/logger.js";
 import type { ChatRequest, DotaAssistant, Grounded } from "./dota.assistant.js";
 import { ConversationMemory, historyBlock, type Turn, type TurnContext } from "./memory.js";
+import type { LiveDraft } from "./liveDraft.js";
 import type { ResolvedPlayer } from "./playerRefs.js";
 
 /**
@@ -35,10 +36,19 @@ export interface Conversation extends Asker {
 
 /** Who is asking, for "me" and @mention player lookups. */
 export interface Asker {
+  /** Channel key (for the live draft in this channel). */
+  key?: string;
+  author?: string;
   /** Discord user ID of the asker. */
   userId?: string;
   /** Display names of users mentioned in the message, by Discord user ID. */
   names?: Record<string, string>;
+}
+
+/** The bits of the live draft store chat needs (keeps AskService testable). */
+export interface LiveDraftHooks {
+  get(key: string): LiveDraft | undefined;
+  setLineup(key: string, allies: string[], enemies: string[], by: string, position?: Position): unknown;
 }
 
 export type PlayerResolver = (ref: string, requesterId?: string, nameOf?: (discordUserId: string) => string | undefined) => ResolvedPlayer;
@@ -52,7 +62,8 @@ const FORGET =
 export const MAX_SOURCES = 3;
 export const NO_SOURCES_NOTE = "Found with a web search, but no source links came back, so double-check it.";
 
-type Plan = { kind: "request"; request: ChatRequest } | { kind: "message"; message: string; context?: TurnContext };
+/** `note` is a small line appended to the reply (e.g. "Updated the live draft"). */
+type Plan = { kind: "request"; request: ChatRequest; note?: string } | { kind: "message"; message: string; context?: TurnContext };
 
 export class AskService {
   constructor(
@@ -61,6 +72,7 @@ export class AskService {
     private readonly lookupHero: (query: string) => Promise<Sourced<DotaHero>>,
     readonly memory: ConversationMemory = new ConversationMemory(),
     private readonly resolvePlayer?: PlayerResolver,
+    private readonly live?: LiveDraftHooks,
   ) {}
 
   async ask(text: string, conversation?: Conversation): Promise<AskResult> {
@@ -90,6 +102,12 @@ export class AskService {
 
   /** Exposed for tests: everything after intent parsing. */
   async answer(question: string, intent: ParsedIntent, turns: Turn[] = [], author?: string, asker: Asker = {}): Promise<AskResult> {
+    // The parser sometimes misses the match ID in "review match 9021302861": take it from the text.
+    if (intent.intent === "match_review" && !intent.matchId) {
+      const found = /\/matches\/(\d+)/.exec(question)?.[1] ?? /\b(\d{10,12})\b/.exec(question)?.[1];
+      if (found && Number(found) > 2 ** 32) intent = { ...intent, matchId: found, players: intent.players.filter((p) => p !== found) };
+      else if (found && /\/matches\//.test(question)) intent = { ...intent, matchId: found };
+    }
     const plan = await this.plan(intent, turns, asker);
     if (plan.kind === "message") return { kind: "message", intent, message: plan.message, context: plan.context };
     if (plan.request.kind === "web") return this.answerFromWeb(question, intent, plan.request, turns, author);
@@ -110,7 +128,7 @@ export class AskService {
       if (statsDown) throw new ProviderUnavailableError("opendota");
       return { kind: "fallback", intent, request: plan.request, grounded };
     }
-    const reply = clipReply(res.data.reply);
+    const reply = clipReply(res.data.reply) + (plan.note ? `\n-# ${plan.note}` : "");
     return {
       kind: "chat",
       intent,
@@ -187,7 +205,9 @@ export class AskService {
       case "pick_recommendation":
       case "draft_analysis":
       case "why_not_pick": {
-        const lineup = await this.mergeLineup(intent, turns);
+        // A live draft in this channel is the lineup being discussed: chat edits go into it (and its bans apply).
+        const live = asker.key ? this.live?.get(asker.key) : undefined;
+        const lineup = await this.mergeLineup(intent, turns, live);
         // A draft_analysis position is where the player *plays*, not a slot to fill, so it never starts a pick.
         const pickPosition = (intent.intent === "draft_analysis" ? undefined : position) ?? lineup.pickPosition;
         const context: TurnContext = { kind: "message", allies: lineup.allies, enemies: lineup.enemies, position: pickPosition };
@@ -201,12 +221,20 @@ export class AskService {
         if (!pickPosition) {
           return { kind: "message", message: "Which position are you picking for (1 carry, 2 mid, 3 offlane, 4 soft support, 5 hard support)?", context };
         }
-        const input = { allies: lineup.allies, enemies: lineup.enemies, position: pickPosition };
-        if (intent.intent === "why_not_pick") {
-          if (!intent.hero) return { kind: "request", request: { kind: "draft", input } };
-          return { kind: "request", request: { kind: "whynot", input, hero: intent.hero } };
+        const input = { allies: lineup.allies, enemies: lineup.enemies, position: pickPosition, bans: live?.bans };
+        let note: string | undefined;
+        if (live && asker.key) {
+          const changed = live.allies.join() !== lineup.allies.join() || live.enemies.join() !== lineup.enemies.join() || live.position !== pickPosition;
+          if (changed) {
+            this.live!.setLineup(asker.key, lineup.allies, lineup.enemies, asker.author ?? "someone", pickPosition);
+            note = "Updated the live draft. `/dota live board` shows it.";
+          }
         }
-        return { kind: "request", request: { kind: "draft", input } };
+        if (intent.intent === "why_not_pick") {
+          if (!intent.hero) return { kind: "request", request: { kind: "draft", input }, note };
+          return { kind: "request", request: { kind: "whynot", input, hero: intent.hero }, note };
+        }
+        return { kind: "request", request: { kind: "draft", input }, note };
       }
       case "player_lookup":
       case "scout_players": {
@@ -237,6 +265,23 @@ export class AskService {
         }
         return { kind: "request", request: { kind: "scout", input: { enemies, unresolved, position, myAccountId } } };
       }
+      case "meta_query":
+        return { kind: "request", request: { kind: "meta", position, bracket: intent.bracket ?? undefined } };
+      case "match_review": {
+        const ref = intent.players[0] ?? "me";
+        let accountId: number | undefined;
+        let playerName: string | undefined;
+        try {
+          accountId = this.resolvePlayer?.(ref, asker.userId, (id) => asker.names?.[id]).accountId;
+        } catch (err) {
+          if (!(err instanceof UserInputError)) throw err;
+          // Without a match ID we need an account to find "their last game".
+          if (!intent.matchId) return { kind: "message", message: err.message };
+          // With a match ID: an unlinked "me" just means no focus; a plain name ("Hadouken") is matched in the match.
+          if (!/^(me|myself|ako|nako|akoa|ko)$/i.test(ref) && !/^<@!?\d+>$/.test(ref)) playerName = ref.replace(/^@/, "");
+        }
+        return { kind: "request", request: { kind: "match", match: intent.matchId ?? undefined, accountId, playerName } };
+      }
       case "hero_info":
         if (intent.hero) return { kind: "request", request: { kind: "hero", hero: intent.hero } };
         break;
@@ -251,11 +296,12 @@ export class AskService {
   }
 
   /** Previous lineup (if the message continues it) minus removed heroes plus newly named ones, deduped by hero. */
-  private async mergeLineup(intent: ParsedIntent, turns: Turn[]): Promise<{ allies: string[]; enemies: string[]; pickPosition?: Position }> {
+  private async mergeLineup(intent: ParsedIntent, turns: Turn[], live?: LiveDraft): Promise<{ allies: string[]; enemies: string[]; pickPosition?: Position }> {
     // Naming heroes for both teams is a fresh lineup, even if the parser thought it continued an earlier one
     // (seen: an earlier Anti-Mage question leaking AM into a new "we have Axe and Lion, they have Storm" draft).
     const restatesBothTeams = intent.allies.length > 0 && intent.enemies.length > 0;
-    const base = intent.continuesDraft && !restatesBothTeams ? lastLineup(turns) : undefined;
+    const fromLive: TurnContext | undefined = live ? { kind: "draft", allies: live.allies, enemies: live.enemies, position: live.position } : undefined;
+    const base = fromLive ?? (intent.continuesDraft && !restatesBothTeams ? lastLineup(turns) : undefined);
     const removed = new Set(await this.canonical(intent.removed));
     // Earlier heroes survive unless removed; heroes named now are always included ("swap Lion for Lich").
     const merge = async (previous: string[] = [], added: string[]) =>
@@ -357,6 +403,12 @@ export function summarizeGrounded(g: Grounded): string {
       return `Player lookup: ${g.analysis.profile.name ?? g.analysis.profile.accountId} (${g.analysis.rank}), likely ${g.analysis.likelyPicks.slice(0, 3).map((l) => l.hero.localizedName).join(", ")}`;
     case "scout":
       return `Scouted ${g.analysis.players.map((p) => p.label).join(", ")}; suggested bans ${g.analysis.bans.slice(0, 3).map((b) => b.hero.localizedName).join(", ") || "none"}`;
+    case "meta":
+      return `Meta ${g.analysis.position ? `pos ${g.analysis.position}` : "all positions"}${g.analysis.bracket ? ` bracket ${g.analysis.bracket}` : ""}: ${g.analysis.strongest.slice(0, 5).map((r) => r.hero.localizedName).join(", ")}`;
+    case "match": {
+      const f = g.review.focus;
+      return `Match review ${g.review.match.matchId}${f ? `: ${f.hero?.localizedName ?? "?"} ${f.won ? "win" : "loss"} ${f.player.kills}/${f.player.deaths}/${f.player.assists}` : ""}`;
+    }
     case "general":
       return "General advice";
   }
@@ -399,6 +451,8 @@ export function contextOf(result: AskResult): TurnContext {
       return { kind: "hero", hero: g.hero.data.localizedName };
     case "player":
     case "scout":
+    case "meta":
+    case "match":
       return { kind: "general" };
     case "general":
       return { kind: "general" };

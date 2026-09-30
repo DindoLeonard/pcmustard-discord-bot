@@ -96,6 +96,58 @@ export interface PlayerMatch {
   laneRole: number | null;
 }
 
+/** Percentile vs other players of the same hero (OpenDota benchmarks), 0..1. */
+export interface Benchmark {
+  raw: number;
+  pct: number;
+}
+
+export interface MatchPlayer {
+  accountId: number | null;
+  name: string | null;
+  heroId: number;
+  isRadiant: boolean;
+  kills: number;
+  deaths: number;
+  assists: number;
+  gpm: number;
+  xpm: number;
+  lastHits: number;
+  denies: number;
+  heroDamage: number;
+  towerDamage: number;
+  heroHealing: number;
+  netWorth: number;
+  level: number;
+  /** item ids in slots 0-5 (0 = empty) plus the neutral item. */
+  items: number[];
+  neutralItem: number | null;
+  rankTier: number | null;
+  benchmarks: Record<string, Benchmark>;
+  // Only present when the replay has been parsed:
+  laneRole?: number;
+  laneEfficiency?: number;
+  obsPlaced?: number;
+  senPlaced?: number;
+  stuns?: number;
+  teamfightParticipation?: number;
+}
+
+export interface MatchDetail {
+  matchId: number;
+  radiantWin: boolean;
+  duration: number;
+  startTime: number;
+  gameMode: number;
+  lobbyType: number;
+  radiantScore: number;
+  direScore: number;
+  /** True when OpenDota has parsed the replay (laning, wards, gold graph available). */
+  parsed: boolean;
+  radiantGoldAdv?: number[];
+  players: MatchPlayer[];
+}
+
 export interface DotaDataProvider {
   readonly name: string;
   getHeroes(): Promise<Sourced<DotaHero[]>>;
@@ -111,4 +163,8 @@ export interface DotaDataProvider {
   getPlayerWinLoss(accountId: number): Promise<Sourced<{ wins: number; losses: number }>>;
   getPlayerHeroes(accountId: number): Promise<Sourced<PlayerHeroStat[]>>;
   getPlayerRecentMatches(accountId: number): Promise<Sourced<PlayerMatch[]>>;
+  /** Throws MatchNotFoundError for unknown matches. */
+  getMatch(matchId: number): Promise<Sourced<MatchDetail>>;
+  /** Ask the provider to parse a replay (for laning/timeline data). Fire-and-forget; resolves true if accepted. */
+  requestParse(matchId: number): Promise<boolean>;
 }

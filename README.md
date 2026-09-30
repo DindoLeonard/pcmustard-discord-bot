@@ -22,6 +22,9 @@ MustardBot: Go Mirana. She fits pos 4 perfectly here and lines up well into all 
 - **Natural language**: @mention the bot, start a message with `mustardbot`, or use `/ask`. You get a short conversational answer with a **Show full analysis** button for the detailed breakdown.
 - **Shared conversation memory**: everyone in a channel shares one conversation, so follow-ups work across friends ("what about vs Lion?", "they also picked Oracle", "why not Earthshaker?"). `mustardbot forget` or `/forget` clears it.
 - **Web search**: questions about other games (e.g. Valheim) and current Dota news or patch notes are looked up on the web, with sources listed under the answer.
+- **Meta**: `/dota meta` shows what's strong this patch, per position and rank.
+- **Match review**: `/dota match` or "how did I do last game?" gives a breakdown against other players of the same hero, what went well, what to improve, and a short coach summary.
+- **Live draft board**: `/dota live start` gives the channel a shared pick/ban board that friends update during the draft, with one-click pick suggestions.
 - **Players and scouting**: `/dota player` shows anyone's rank, heroes and likely picks (from a Friend ID or profile link). `/dota scout` predicts what enemy players will pick, suggests bans, and recommends picks against them. `/dota link` connects your own account so `me` and @mentions work.
 - **Hero name help**: autocomplete, nicknames (`storm`, `am`, `wr`), typo tolerance, and AI guesses for descriptions ("the fat guy with the hook" → Pudge).
 
@@ -89,6 +92,9 @@ npm run build && npm start
 | `/dota matchup my_hero:<hero> enemy_hero:<hero> [position]` | How to play your hero against a specific enemy |
 | `/dota draft position:<1-5> [ally1..ally4] [enemy1..enemy5] [rank]` | Team analysis and pick recommendations for your open position |
 | `/dota hero hero:<hero>` | Hero overview, stats by bracket, and playstyle and counters buttons |
+| `/dota meta [position] [rank]` | Strongest and most picked heroes this patch, plus the most contested pro heroes |
+| `/dota match [match] [account] [user]` | Review a match (default: your last game). Compares you with other players of the same hero, and lists what went well and what to improve |
+| `/dota live start [position]` | Start a shared draft board in this channel. Then `/dota live ally/enemy/ban/remove hero:…`, `position`, `suggest`, `undo`, `board`, `end`, plus buttons on the board |
 | `/dota player [account] [user]` | A player's rank, record, most played heroes, recent matches and likely picks (default: your linked account) |
 | `/dota link account:<Friend ID>` | Link **your own** Dota account, so `me` works and friends can @mention you |
 | `/dota unlink` | Remove your link |
@@ -107,6 +113,9 @@ mustardbot what changed in the latest dota patch?
 mustardbot do you know valheim? what armor for the swamp?
 mustardbot what does 158650393 usually play?
 mustardbot scout @Leo and 86745912, what pos 4 should I pick?
+mustardbot what's the best pos 5 in Archon right now?
+mustardbot how did I do last game?
+mustardbot they picked Oracle, what now?      (updates the live draft if one is running)
 mustardbot forget
 ```
 
@@ -171,7 +180,8 @@ tests/           Vitest unit tests
 
 ## Limitations
 
-- **Memory is in-process:** it's cleared when the bot restarts. Moving it to Redis is planned.
+- **Memory and live drafts are in-process:** both are cleared when the bot restarts. Moving them to Redis is planned.
+- **Match details depend on parsing:** unparsed replays have no laning or ward data. The bot requests a parse, and the data appears a few minutes later.
 - **The hero trait table is hand-curated** and should be reviewed after big patches. Kez, Largo and Ring Master are marked low-confidence.
 - **OpenDota matchup samples are small** (often under 100 games per pair). Small samples are flagged and pulled toward 50%.
 - **Chat replies aren't item-validated:** item names in the detailed embeds are checked against OpenDota, but free-form chat replies aren't yet.

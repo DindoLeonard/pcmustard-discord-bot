@@ -105,6 +105,8 @@ const COUNTER_PUCK = {
   enemies: [],
   removed: [],
   players: [],
+  matchId: null,
+  bracket: null,
   continuesDraft: false,
 };
 const GENERAL = { ...COUNTER_PUCK, intent: "general_strategy", hero: null };

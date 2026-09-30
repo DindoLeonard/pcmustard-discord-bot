@@ -67,6 +67,11 @@ LOG_LEVEL=warn npx tsx $D --text cmd dota meta position=5 rank=4
 DRIVER_USER_ID=777 npx tsx $D --text cmd dota match          # last game of the linked account
 LOG_LEVEL=warn npx tsx $D --text cmd dota match match=https://www.dotabuff.com/matches/9021302861
 LOG_LEVEL=warn npx tsx $D --text seq "cmd dota live start position=5" "cmd dota live ally hero=Axe" "cmd dota live enemy hero=storm" "cmd dota live ban hero=Disruptor" "say mustardbot they also picked Oracle, what should I pick?" "component live:undo" "component live:suggest" "cmd dota live end"
+
+# Images: "@image:<path>" attaches a local file (no spaces in the path). "click 1" presses button 1 of the previous reply.
+LOG_LEVEL=warn npx tsx $D --text say "mustardbot can you see this? @image:C:/path/any.png"
+LOG_LEVEL=warn npx tsx $D --text seq "say mustardbot what pos 5 should I pick? @image:C:/path/draft.png" "click 1"
+LOG_LEVEL=warn npx tsx $D --text convo "Leonardodo#888>mustardbot how's our draft? @image:C:/path/draft.png"   # side from the name under a portrait
 LOG_LEVEL=warn npx tsx $D autocomplete dota hero hero Inv
 npx tsx $D list
 npx tsx $D live
@@ -134,7 +139,7 @@ npm run typecheck
 npm test
 ```
 
-Expect 12 files and 160 tests (`tests/meta-match-live.test.ts` covers meta, match review and the live draft). They cover player lookup, scouting and account links (`tests/player.test.ts`), scoring, team profiles, draft validation and ranking, knowledge-table integrity, OpenAI strict-schema shape, provider parsing, the assistant's hallucination guards (unknown heroes and items dropped), fallbacks, intent planning (including deterministic draft merging and the no-leak guarantee), chat replies, conversation memory and custom IDs. Everything uses fake providers and a fake AI, with no network.
+Expect 13 files and 172 tests (`tests/image.test.ts` covers attachments, vision requests and screenshot flows; `tests/meta-match-live.test.ts` covers meta, match review and the live draft). They cover player lookup, scouting and account links (`tests/player.test.ts`), scoring, team profiles, draft validation and ranking, knowledge-table integrity, OpenAI strict-schema shape, provider parsing, the assistant's hallucination guards (unknown heroes and items dropped), fallbacks, intent planning (including deterministic draft merging and the no-leak guarantee), chat replies, conversation memory and custom IDs. Everything uses fake providers and a fake AI, with no network.
 
 After a Dota patch, check that the curated trait table still covers every hero. It should print `missing: []`:
 
@@ -173,6 +178,14 @@ Register it in `src/discord/commands/index.ts`. For a `/dota` subcommand, add it
 - **Never type `<` in driver arguments on this machine.** `node` and `npx` run through a `cmd.exe` wrapper, which treats `<` as redirection even inside quotes. The failure looks like `The system cannot find the file specified.` or `The syntax of the command is incorrect.` from Bash *and* PowerShell. Use `@777`; the driver rewrites it to `<@777>`. Multi-line `node -e "…"` scripts get mangled the same way, so write a file instead.
 - **Player lookups.** OpenDota returns HTTP 404 *or* an empty 200 shell for unknown accounts, and both become `PlayerNotFoundError`. Private profiles resolve but have no heroes or matches ("Expose Public Match Data"). Wins come from `player_slot < 128` (Radiant) compared with `radiant_win`. Rank tier 45 is **Archon 5** (tens digit = medal: 1 Herald … 8 Immortal).
 - **Scouting is fault-tolerant.** An unlinked @mention, a bad ID or a private profile becomes a "Couldn't scout" row, and the other players still get analysed. Parser quirk: "unsa ganahan i-pick ni @Leo?" can come back as a *draft* intent because of the word "pick". `plan()` reroutes a draft intent that names players but no heroes to `player_lookup` or `scout_players`.
+- **Vision accuracy (measured, not assumed).** On a mock pick screen built from real hero portraits (10 heroes, 2 bans):
+  - `gpt-5.4-mini` read 1–3 of 4 Radiant and 2–3 of 5 Dire heroes.
+  - `gpt-5.4` with a hero-name enum read 4/4 and 4–5/5 across 3 runs; Oracle is the usual miss (read as Medusa, Naga Siren or Dark Seer).
+  - Bans, shown greyscale with a red X, were wrong or invented by every model.
+
+  That's why draft screenshots get a second `image.draft` call on `VISION_MODEL` (gpt-5.4) with `z.enum(heroNames)`, why bans are never read, and why every screenshot reply shows "Read from the screenshot: …". The call takes about 9–17s, so a screenshot reply takes around 15–25s in total.
+- **Making a test screenshot.** The Playwright MCP blocks `file://` URLs and only saves screenshots inside the repo. Serve the HTML from the scratchpad on a local port, save the screenshot to `.playwright-mcp/` (gitignored), move it to the scratchpad, and delete the folder.
+- **Side detection.** A draft screen doesn't show whose team is "ours". The bot looks for the asker's display name under a portrait, or "we're Dire" in the text. Otherwise it replies with a `choice` result (Radiant / Dire buttons, `img:side:<token>:<side>`), and the pending screenshot is kept for 30 minutes.
 - **Match review has side effects.** For an unparsed replay, `MatchService.review` POSTs `/request/{id}` to OpenDota. A few minutes later the same match comes back parsed, with lane efficiency, wards and so on. This is real, and it happened to 9021302861 during testing. Match IDs are 6–12 digits, and recent ones are larger than 2^32, which is how chat tells "review match 9021302861" apart from an account ID when the parser misses `matchId`.
 - **Live drafts are per channel and in-process** (`LiveDraftStore`, TTL 2h), so a restart ends them. Each `/dota live` change posts a new board and deletes the previous one (`boardMessageId`); Undo and End update the clicked board in place. Bans can't fit in a button custom ID, so a chat reply during a live draft points its "Show full analysis" button at `live:suggest` instead of `full:draft:…`.
 - **Escapes get mangled in inline scripts.** Writing `\n` or `\S` inside a `cat > x.cjs <<'EOF'` script sometimes arrives as a real newline or a bare `S` in the edited file (seen twice: driver line 318 and `ask.service.ts`). Check with `node --check` or `npm run typecheck` after scripted edits, or make multi-line edits with the editor tool.

@@ -112,5 +112,15 @@ export function renderAsk(result: AskResult): ReplyPayload {
       return renderGrounded(result.grounded);
     case "message":
       return { content: result.message, embeds: [], components: [] };
+    case "choice":
+      return {
+        content: result.message,
+        embeds: [],
+        components: [
+          new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
+            ...result.buttons.map((b) => new ButtonBuilder().setCustomId(b.customId).setLabel(b.label).setStyle(ButtonStyle.Primary)),
+          ),
+        ],
+      };
   }
 }

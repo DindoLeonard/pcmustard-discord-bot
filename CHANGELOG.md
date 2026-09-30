@@ -7,11 +7,27 @@ The version lives in `package.json`. Bump it with `npm version <patch|minor|majo
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-09-30
+
 ### Added
-- `/dota meta [position] [rank]`: the strongest heroes this patch (win rate adjusted for sample size, at least 1% pick rate), plus the most picked and the most contested in pro games.
-- `/dota match [match] [account] [user]`: match review. It defaults to the linked player's last game and compares their stats with other players of the same hero ("GPM better than 89% of Zeus players"). It lists what went well and what to improve, adds a short AI coach summary, and asks OpenDota to parse unparsed replays so laning data appears on the next run.
-- `/dota live start|ally|enemy|ban|remove|position|suggest|undo|board|end`: a shared live draft board per channel, with Suggest / Undo / End buttons. The newest board replaces the previous one, bans are never suggested, and the draft expires 2 hours after the last change.
-- Chat: "what's the best pos 5 in Archon?", "how did I do last game?", "review match 9021302861", "how did Hadouken do in <match link>?", "unsa ang meta karon sa mid?". Draft questions in chat update the channel's live draft when one is running.
+- **`/dota meta [position] [rank]`**: what's strong this patch. It shows the strongest heroes (win rate adjusted for sample size, among heroes in at least 1% of games), the most picked, and the most contested in pro games, for any position and rank.
+- **`/dota match [match] [account] [user]`**: match review. It defaults to your last game if you're linked, or takes a match ID or link. It compares you with other players of the same hero ("GPM better than 89% of Zeus players"), lists what went well and what to improve, and adds a short coach summary. Unparsed replays are sent to OpenDota for parsing, so laning data shows up a few minutes later.
+- **`/dota live …`**: a shared draft board for the channel. Start it with `/dota live start`, then add picks and bans with `ally`, `enemy`, `ban` and `remove` as the draft happens. Buttons: **Suggest a pick**, **Undo** and **End draft**. Banned heroes are never suggested, the newest board always replaces the old one, and a draft expires 2 hours after the last change.
+- **Images and draft screenshots**: attach an image when you @mention the bot or write `mustardbot`, reply to an image, or use `/ask image:`.
+  - Draft screenshots: the bot reads both teams' heroes, finds your side from your name under a portrait (or asks with **We're Radiant / We're Dire** buttons), then gives pick or team advice. It always shows what it read so you can correct it.
+  - Any other image: it describes the image and answers your question about it.
+- Chat works for all of the above, in English or Bisaya: "what's the best pos 5 in Archon?", "how did I do last game?", "review match 9021302861", "unsa ang meta karon sa mid?", or "what should I pick?" with a draft screenshot attached.
+
+### Changed
+- While a live draft is running, chat draft questions ("they also picked Oracle, what now?") update that draft and respect its bans.
+
+### Fixed
+- The bot no longer claims it can "check the image if you resend it" when it can't see images. It now reads them, and says so honestly when nothing is attached.
+
+### Known limitations
+- Screenshot reading isn't perfect: it occasionally misreads a hero (Oracle, most often), and bans aren't read from screenshots. Add them with `/dota live ban`.
+- Live drafts and chat memory are cleared when the bot restarts.
+- Laning and ward details in match reviews need a parsed replay. The bot requests the parse, so check again a few minutes later.
 
 ## [1.2.0] - 2026-09-29
 

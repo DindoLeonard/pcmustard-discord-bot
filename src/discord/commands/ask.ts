@@ -1,8 +1,8 @@
 import { SlashCommandBuilder, type ChatInputCommandInteraction } from "discord.js";
-import { ai } from "../../ai/ai.service.js";
 import { askService } from "../../assistant/index.js";
 import { ConversationMemory } from "../../assistant/memory.js";
 import type { Conversation } from "../../assistant/ask.service.js";
+import { downloadImages } from "../attachments.js";
 import { renderAsk } from "../components/ask.render.js";
 import type { Command } from "./types.js";
 
@@ -22,10 +22,13 @@ export const ask: Command = {
     .setDescription("Ask a Dota 2 question in plain English")
     .addStringOption((o) =>
       o.setName("question").setDescription('e.g. "I\'m Invoker mid vs Huskar, what should I do?"').setRequired(true).setMaxLength(1000),
-    ),
+    )
+    .addAttachmentOption((o) => o.setName("image").setDescription("A screenshot (e.g. the draft screen) or any image to ask about").setRequired(false)),
   async execute(interaction) {
     await interaction.deferReply();
-    const result = await askService.ask(interaction.options.getString("question", true), interactionConversation(interaction));
+    const attachment = interaction.options.getAttachment("image");
+    const images = attachment ? await downloadImages([attachment]) : [];
+    const result = await askService.ask(interaction.options.getString("question", true), interactionConversation(interaction), images);
     await interaction.editReply(renderAsk(result));
   },
 };

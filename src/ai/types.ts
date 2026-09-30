@@ -9,6 +9,17 @@ export interface AIRequest<T> {
   schema: z.ZodType<T>;
   schemaName: string;
   maxOutputTokens?: number;
+  /** Images sent with the user message (vision). */
+  images?: AIImage[];
+  /** Use a different model for this request (e.g. a stronger vision model for reading draft screenshots). */
+  model?: string;
+}
+
+export interface AIImage {
+  /** data: URL (base64) - downloaded by us, so the provider never has to reach Discord's CDN. */
+  dataUrl: string;
+  /** "high" is needed to read small things like hero portraits in a draft screenshot. */
+  detail?: "low" | "high" | "auto";
 }
 
 export interface AIResponse<T> {

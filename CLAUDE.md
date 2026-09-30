@@ -43,6 +43,7 @@ Built and working (Phases 1–4 and 6, plus parts of 5):
 - Player features: `/dota player`, `/dota link`/`unlink`, `/dota scout` (likely picks, bans, and picks against scouted players with a comfort bonus from your own pool). Links are stored in `data/player-links.json`.
 - Fallbacks: data-only embeds when the AI fails, and general advice (labelled) when OpenDota is down.
 
+- Image understanding: attachments (or the replied-to message's) and `/ask image:` go to the intent parser as vision input. Draft screenshots are re-read by `VISION_MODEL` (gpt-5.4) with an enum of real hero names; the bot asks for the side with buttons when unknown, and always shows the lineup it read. Bans are not read (unreliable).
 - `/dota meta` (sample-adjusted strongest, most picked, pro-contested), `/dota match` (a review against same-hero percentiles, requesting a parse for unparsed replays), and `/dota live …` (the shared per-channel draft board with bans, undo and suggestions; chat draft questions update it).
 
 Not built yet: Redis/Postgres (memory and live drafts are in-process), STRATZ, `/dota build|items`, a second game adapter, per-user rate limiting.
@@ -1124,6 +1125,12 @@ The bot may still provide general strategic advice, but it should clearly distin
 - "Likely picks" are estimates from match history (recent form weighted above all-time), and must be labelled as a guess, not a prediction.
 - Bot messages must never ping anyone: the client sets `allowedMentions: { parse: [] }`.
 
+Image rules:
+
+- The bot must never claim to see an image it wasn't given, or promise to "check it if you resend". If no image is attached, it says so.
+- Heroes read from screenshots are AI estimates: always show the lineup read (so users can correct it), constrain names to the real hero list, and never read bans from screenshots.
+- Images are downloaded by the bot and sent to the AI as data URLs. They're not stored.
+
 7. Web search rules:
 
 - Use web search only when configured data providers can't answer: questions about other games, time-sensitive Dota information (patch notes, hero reworks, tournaments, esports results, news), and everyday real-world lookups (opening hours, addresses, weather, news).
@@ -1254,6 +1261,7 @@ AI_TIMEOUT_MS=25000
 WEB_SEARCH_ENABLED=true
 WEB_SEARCH_MODEL=            # optional, defaults to OPENAI_MODEL
 WEB_SEARCH_TIMEOUT_MS=45000
+VISION_MODEL=gpt-5.4         # reads heroes from draft screenshots
 
 # Conversation memory
 MEMORY_MAX_TURNS=6           # 0 disables memory

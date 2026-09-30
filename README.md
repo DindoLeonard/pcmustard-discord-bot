@@ -1,6 +1,6 @@
 # MustardBot — Dota 2 AI Assistant for Discord
 
-**Version 1.2.0** · see [CHANGELOG.md](CHANGELOG.md) for what's in each release.
+**Version 1.3.0** · see [CHANGELOG.md](CHANGELOG.md) for what's in each release.
 
 A Discord bot that helps with Dota 2: counters, lane matchups, draft picks, and plain-English questions. It answers like a knowledgeable friend in chat, but its recommendations come from **real match data and a scoring engine**, not from the AI's imagination.
 
@@ -24,6 +24,7 @@ MustardBot: Go Mirana. She fits pos 4 perfectly here and lines up well into all 
 - **Web search**: questions about other games (e.g. Valheim) and current Dota news or patch notes are looked up on the web, with sources listed under the answer.
 - **Meta**: `/dota meta` shows what's strong this patch, per position and rank.
 - **Match review**: `/dota match` or "how did I do last game?" gives a breakdown against other players of the same hero, what went well, what to improve, and a short coach summary.
+- **Images and draft screenshots**: attach a screenshot (or reply to one) when you @mention or use `mustardbot`, or use `/ask image:`. It reads draft screens (both teams' heroes) and asks which side you're on if needed. Any other image, it describes and answers about.
 - **Live draft board**: `/dota live start` gives the channel a shared pick/ban board that friends update during the draft, with one-click pick suggestions.
 - **Players and scouting**: `/dota player` shows anyone's rank, heroes and likely picks (from a Friend ID or profile link). `/dota scout` predicts what enemy players will pick, suggests bans, and recommends picks against them. `/dota link` connects your own account so `me` and @mentions work.
 - **Hero name help**: autocomplete, nicknames (`storm`, `am`, `wr`), typo tolerance, and AI guesses for descriptions ("the fat guy with the hook" → Pudge).
@@ -116,6 +117,7 @@ mustardbot scout @Leo and 86745912, what pos 4 should I pick?
 mustardbot what's the best pos 5 in Archon right now?
 mustardbot how did I do last game?
 mustardbot they picked Oracle, what now?      (updates the live draft if one is running)
+mustardbot what should I pick?  [attach a screenshot of the draft screen]
 mustardbot forget
 ```
 
@@ -138,6 +140,7 @@ All settings live in `.env` (see `.env.example`). They're validated when the bot
 | `WEB_SEARCH_ENABLED` | `true` | Web search for other games and Dota news (extra cost per search) |
 | `WEB_SEARCH_MODEL` | `OPENAI_MODEL` | Model used for web searches |
 | `WEB_SEARCH_TIMEOUT_MS` | `45000` | Timeout for web searches |
+| `VISION_MODEL` | `gpt-5.4` | Model that reads heroes from draft screenshots (stronger than the chat model at recognising portraits) |
 | `MEMORY_MAX_TURNS` | `6` | Exchanges remembered per channel (`0` disables memory) |
 | `MEMORY_TTL_MINUTES` | `30` | A channel's memory is forgotten after this long with no messages |
 | `PLAYER_LINKS_FILE` | `data/player-links.json` | Where `/dota link` saves Discord → Dota account links |
@@ -181,6 +184,7 @@ tests/           Vitest unit tests
 ## Limitations
 
 - **Memory and live drafts are in-process:** both are cleared when the bot restarts. Moving them to Redis is planned.
+- **Draft screenshots aren't perfect:** in testing, the vision model read about 9 of 10 heroes correctly and sometimes misread one (e.g. Oracle). The bot always shows what it read, so correct it in chat if needed. Bans aren't read from screenshots.
 - **Match details depend on parsing:** unparsed replays have no laning or ward data. The bot requests a parse, and the data appears a few minutes later.
 - **The hero trait table is hand-curated** and should be reviewed after big patches. Kez, Largo and Ring Master are marked low-confidence.
 - **OpenDota matchup samples are small** (often under 100 games per pair). Small samples are flagged and pulled toward 50%.

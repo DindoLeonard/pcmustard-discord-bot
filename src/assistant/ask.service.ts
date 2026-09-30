@@ -1,8 +1,9 @@
 import type { AIService } from "../ai/ai.service.js";
 import { CHAT_REPLY_MAX_CHARS, chatPrompt } from "../ai/prompts/chat.prompt.js";
 import { intentPrompt, type ParsedIntent } from "../ai/prompts/intent.prompt.js";
+import { draftScreenshotPrompt } from "../ai/prompts/image.prompt.js";
 import { webSearchPrompt } from "../ai/prompts/web.prompt.js";
-import type { WebSource } from "../ai/types.js";
+import type { AIImage, WebSource } from "../ai/types.js";
 import { POSITION_LABEL, isPosition, type Position } from "../games/dota/knowledge/traits.js";
 import type { DotaHero } from "../games/dota/providers/dota.provider.js";
 import { pct } from "../games/dota/services/scoring.service.js";
@@ -23,7 +24,20 @@ export type AskResult =
   | { kind: "chat"; intent: ParsedIntent; request: ChatRequest; grounded: Grounded; reply: string; sources?: WebSource[] }
   /** The chat reply failed: render the data-only analysis instead. */
   | { kind: "fallback"; intent: ParsedIntent; request: ChatRequest; grounded: Grounded }
-  | { kind: "message"; intent?: ParsedIntent; message: string; context?: TurnContext };
+  | { kind: "message"; intent?: ParsedIntent; message: string; context?: TurnContext }
+  /** A question back to the user with buttons (e.g. "Which side are you on?" for a draft screenshot). */
+  | { kind: "choice"; intent?: ParsedIntent; message: string; buttons: { label: string; customId: string }[] };
+
+type ScreenshotSide = "radiant" | "dire";
+
+interface PendingScreenshot {
+  intent: ParsedIntent;
+  question: string;
+  createdAt: number;
+}
+
+/** "Which side are you on?" buttons stay valid this long. */
+const PENDING_TTL_MS = 30 * 60 * 1000;
 
 export const ASK_HELP =
   'Ask me things like "what counters Puck?", "I\'m Invoker mid vs Huskar, what do I do?" or "we have Axe and Lion, they have Storm and Lifestealer, what pos 4 should I pick?"';
@@ -73,31 +87,107 @@ export class AskService {
     readonly memory: ConversationMemory = new ConversationMemory(),
     private readonly resolvePlayer?: PlayerResolver,
     private readonly live?: LiveDraftHooks,
+    /** Model that re-reads hero portraits in draft screenshots. */
+    private readonly visionModel?: string,
   ) {}
 
-  async ask(text: string, conversation?: Conversation): Promise<AskResult> {
+  private readonly pending = new Map<string, PendingScreenshot>();
+
+  async ask(text: string, conversation?: Conversation, images: AIImage[] = []): Promise<AskResult> {
     const question = text.trim();
-    if (!question) return { kind: "message", message: ASK_HELP };
-    if (conversation && FORGET.test(question)) return this.forget(conversation.key);
+    if (!question && !images.length) return { kind: "message", message: ASK_HELP };
+    if (conversation && question && !images.length && FORGET.test(question)) return this.forget(conversation.key);
     if (!this.ai.available) {
       return { kind: "message", message: "Natural-language questions need an AI provider (OPENAI_API_KEY). Use `/dota counter`, `/dota matchup` or `/dota draft` instead." };
     }
 
     const turns = conversation ? this.memory.get(conversation.key) : [];
     const history = historyBlock(turns);
-    const parsed = await this.ai.tryGenerate(intentPrompt(question, history));
+    const parsed = await this.ai.tryGenerate(intentPrompt(question, history, images, conversation?.author));
     if (!parsed.ok) return { kind: "message", message: "I couldn't understand that right now. Try the /dota commands instead." };
-    const intent = parsed.data;
-    logger.info("intent parsed", { intent: intent.intent, game: intent.game, continuesDraft: intent.continuesDraft, historyTurns: turns.length });
+    let intent = parsed.data;
+    logger.info("intent parsed", {
+      intent: intent.intent,
+      game: intent.game,
+      continuesDraft: intent.continuesDraft,
+      historyTurns: turns.length,
+      images: images.length,
+      imageKind: intent.image?.kind,
+    });
 
     // Never claim to forget without actually doing it, whatever language it was asked in.
     if (intent.intent === "forget_memory") {
       return conversation ? this.forget(conversation.key) : { kind: "message", message: "There was nothing to forget." };
     }
 
-    const result = await this.answer(question, intent, turns, conversation?.author, conversation);
-    if (conversation) this.remember(conversation, question, result);
+    const asked = question || (images.length ? "What do you think of this image?" : "");
+    // A draft screenshot: we need to know which team is the asker's before it means anything.
+    if (images.length && intent.image?.kind === "dota_draft") intent = await this.readDraftScreenshot(intent, images, asked, conversation?.author);
+    const shot = intent.image;
+    if (images.length && shot?.kind === "dota_draft" && (shot.radiant.length || shot.dire.length)) {
+      if (shot.askerSide === "unknown") return this.askWhichSide(intent, asked);
+      intent = applyScreenshot(intent, shot.askerSide);
+    }
+
+    let result = await this.answer(asked, intent, turns, conversation?.author, conversation);
+    // Show what was read from a draft screenshot, so a misread hero is easy to spot and correct.
+    if (result.kind === "chat" && intent.image?.kind === "dota_draft") result = { ...result, reply: `${result.reply}\n-# ${screenshotNote(intent)}` };
+    if (conversation) this.remember(conversation, images.length ? `${question || ""} [sent ${images.length === 1 ? "an image" : `${images.length} images`}]`.trim() : question, result);
     return result;
+  }
+
+  /** Re-read hero portraits with the (stronger) vision model, constrained to real hero names. Falls back to the parser's read. */
+  private async readDraftScreenshot(intent: ParsedIntent, images: AIImage[], message: string, author?: string): Promise<ParsedIntent> {
+    if (!this.visionModel) return intent;
+    const names = (await this.assistant.heroNames()) as [string, ...string[]];
+    const res = await this.ai.tryGenerate(draftScreenshotPrompt(images, names, message, author, this.visionModel));
+    if (!res.ok) return intent;
+    const shot = intent.image!;
+    const askerSide = res.data.askerSide !== "unknown" ? res.data.askerSide : shot.askerSide;
+    return { ...intent, image: { ...shot, radiant: res.data.radiant.slice(0, 5), dire: res.data.dire.slice(0, 5), askerSide } };
+  }
+
+  /** "Radiant or Dire?" for a draft screenshot; the buttons resume via resolveScreenshotSide(). */
+  private askWhichSide(intent: ParsedIntent, question: string): AskResult {
+    const shot = intent.image!;
+    const token = Math.random().toString(36).slice(2, 10);
+    this.sweepPending();
+    this.pending.set(token, { intent, question, createdAt: Date.now() });
+    const list = (h: string[]) => h.join(", ") || "none yet";
+    return {
+      kind: "choice",
+      intent,
+      message: [
+        "Here's what I can read from the screenshot:",
+        `**Radiant:** ${list(shot.radiant)}`,
+        `**Dire:** ${list(shot.dire)}`,
+        "Which side are you on? (If a hero is wrong, just tell me the right lineup.)",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+      buttons: [
+        { label: "We're Radiant", customId: `img:side:${token}:radiant` },
+        { label: "We're Dire", customId: `img:side:${token}:dire` },
+      ],
+    };
+  }
+
+  /** Continue a draft screenshot once someone picks a side. */
+  async resolveScreenshotSide(token: string, side: ScreenshotSide, conversation?: Conversation): Promise<AskResult> {
+    this.sweepPending();
+    const pending = this.pending.get(token);
+    if (!pending) return { kind: "message", message: "That screenshot has expired. Send it again." };
+    this.pending.delete(token);
+    const turns = conversation ? this.memory.get(conversation.key) : [];
+    const intent = applyScreenshot(pending.intent, side);
+    const result = await this.answer(pending.question, intent, turns, conversation?.author, conversation);
+    if (conversation) this.remember(conversation, `${pending.question} [draft screenshot, ${side}]`, result);
+    return result;
+  }
+
+  private sweepPending(): void {
+    const cutoff = Date.now() - PENDING_TTL_MS;
+    for (const [k, v] of this.pending) if (v.createdAt < cutoff) this.pending.delete(k);
   }
 
   /** Exposed for tests: everything after intent parsing. */
@@ -110,7 +200,8 @@ export class AskService {
     }
     const plan = await this.plan(intent, turns, asker);
     if (plan.kind === "message") return { kind: "message", intent, message: plan.message, context: plan.context };
-    if (plan.request.kind === "web") return this.answerFromWeb(question, intent, plan.request, turns, author);
+    const image = imageBlock(intent);
+    if (plan.request.kind === "web") return this.answerFromWeb(image ? `${question}\n\n${image}` : question, intent, plan.request, turns, author);
 
     // If the stats provider is down, still answer from general knowledge and say so (CLAUDE.md data rules).
     let grounded: Grounded;
@@ -123,7 +214,8 @@ export class AskService {
       grounded = { kind: "general", data: "" };
       statsDown = true;
     }
-    const res = await this.ai.tryGenerate(chatPrompt({ question, author, history: historyBlock(turns), data: grounded.data, statsDown, webSearchAvailable: this.ai.webSearchAvailable }));
+    const data = [image, grounded.data].filter(Boolean).join("\n\n");
+    const res = await this.ai.tryGenerate(chatPrompt({ question, author, history: historyBlock(turns), data, statsDown, webSearchAvailable: this.ai.webSearchAvailable }));
     if (!res.ok) {
       if (statsDown) throw new ProviderUnavailableError("opendota");
       return { kind: "fallback", intent, request: plan.request, grounded };
@@ -349,6 +441,41 @@ function hostOf(url: string): string {
   }
 }
 
+/** Map a draft screenshot onto allies/enemies once we know the asker's side. */
+export function applyScreenshot(intent: ParsedIntent, side: ScreenshotSide): ParsedIntent {
+  const shot = intent.image!;
+  const [allies, enemies] = side === "radiant" ? [shot.radiant, shot.dire] : [shot.dire, shot.radiant];
+  const picking = intent.intent === "pick_recommendation" || intent.intent === "why_not_pick";
+  return {
+    ...intent,
+    intent: picking ? intent.intent : "draft_analysis",
+    // Still picking: the asker is the open slot (max 4 allies). A finished lineup keeps all 5.
+    allies: allies.slice(0, picking ? 4 : 5),
+    enemies: enemies.slice(0, 5),
+    removed: [],
+    continuesDraft: false,
+    image: { ...shot, askerSide: side },
+  };
+}
+
+/** Small footer showing the lineup read from a draft screenshot. */
+export function screenshotNote(intent: ParsedIntent): string {
+  const img = intent.image!;
+  return `Read from the screenshot: Radiant ${img.radiant.join(", ") || "none"} · Dire ${img.dire.join(", ") || "none"}. Wrong hero? Tell me the right lineup. Bans aren't read, so add them with /dota live ban.`;
+}
+
+/** What the attached image shows, for grounding the reply (the chat model never sees the image itself). */
+export function imageBlock(intent: ParsedIntent): string {
+  const img = intent.image;
+  if (!img) return "";
+  const lines = [`IMAGE ATTACHED BY THE ASKER (${img.kind.replace("_", " ")}): ${img.description}`];
+  if (img.visibleText.trim()) lines.push(`Text in the image: ${img.visibleText.trim().slice(0, 800)}`);
+  if (img.kind === "dota_draft") {
+    lines.push(`Read from the screenshot: Radiant ${img.radiant.join(", ") || "none"}; Dire ${img.dire.join(", ") || "none"}; asker is ${img.askerSide}. (Bans are not read from screenshots.)`);
+  }
+  return lines.join("\n");
+}
+
 function unique<T>(v: T, i: number, all: T[]): boolean {
   return all.indexOf(v) === i;
 }
@@ -422,6 +549,7 @@ export function summarize(result: AskResult): string {
     case "fallback":
       return summarizeGrounded(result.grounded);
     case "message":
+    case "choice":
       return result.message;
   }
 }
@@ -429,6 +557,7 @@ export function summarize(result: AskResult): string {
 /** Structured state a follow-up can build on, using resolved hero names. */
 export function contextOf(result: AskResult): TurnContext {
   if (result.kind === "message") return result.context ?? { kind: "message" };
+  if (result.kind === "choice") return { kind: "message" };
   const g = result.grounded;
   switch (g.kind) {
     case "counter":

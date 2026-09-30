@@ -151,6 +151,11 @@ export class DotaAssistant {
     return res.ok ? { ...base, explanation: res.data } : { ...base, explanation: null, aiNote: AI_FAILED_NOTE };
   }
 
+  /** Every hero's display name (to constrain AI output to real heroes). */
+  async heroNames(): Promise<string[]> {
+    return (await this.dota.heroes.list()).data.map((h) => h.localizedName);
+  }
+
   /** Match review plus a short AI coach summary (null summary when the AI is off or fails). */
   async matchReview(input: ReviewInput): Promise<{ review: MatchReview; summary?: string }> {
     const review = await this.dota.matches.review(input);

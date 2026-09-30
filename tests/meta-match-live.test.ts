@@ -187,6 +187,7 @@ const intent = (over: Partial<ParsedIntent>): ParsedIntent => ({
   players: [],
   matchId: null,
   bracket: null,
+  image: null,
   continuesDraft: false,
   ...over,
 });

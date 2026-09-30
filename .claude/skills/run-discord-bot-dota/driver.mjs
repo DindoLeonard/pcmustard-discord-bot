@@ -22,7 +22,18 @@
 // Output goes to stdout. The app's JSON log lines go there first (warn/error on stderr); set LOG_LEVEL=warn to hide
 // them. Exit code 0 = handler replied; 1 = no reply / crash; 2 = usage error.
 
+import { readFileSync, statSync } from "node:fs";
+import { basename } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { ApplicationCommandOptionType, ComponentType, InteractionType } from "discord.js";
+
+// Attachments in driver messages are file:// URLs; Node's fetch can't read those, so serve them from disk.
+const realFetch = globalThis.fetch;
+globalThis.fetch = async (input, init) => {
+  const url = String(input instanceof Request ? input.url : input);
+  if (url.startsWith("file:")) return new Response(readFileSync(fileURLToPath(url)));
+  return realFetch(input, init);
+};
 
 const argv = process.argv.slice(2);
 const textMode = argv.includes("--text");
@@ -111,7 +122,7 @@ function makeInteraction({ type, commandName, options, componentType, customId, 
         },
       },
     },
-    message: { id: "board-message" },
+    message: { id: "board-message", content: "(the message with this button)" },
     guildId: "driver-guild",
     channelId: "driver-channel",
     client: { ws: { ping: -1 }, users: { cache: new Map() } },
@@ -234,7 +245,17 @@ async function postMessage(text, { mention, author = "driver" }) {
   const { handleMessage } = await import("../../../src/discord/client.js");
   const captured = [];
   const [name, id] = author.includes("#") ? author.split("#") : [author, author === "driver" ? DRIVER_USER_ID : `user-${author}`];
-  const content = mention ? `<@${BOT_USER_ID}> ${toMentions(text)}` : toMentions(text);
+  // "@image:C:/path/shot.png" tokens become image attachments (read from disk; paths without spaces).
+  const imagePaths = [...text.matchAll(/@image:(\S+)/g)].map((m) => m[1]);
+  const bare = text.replace(/\s*@image:\S+/g, "").trim();
+  const content = mention ? `<@${BOT_USER_ID}> ${toMentions(bare)}` : toMentions(bare);
+  const attachments = new Map(
+    imagePaths.map((p, i) => {
+      const size = statSync(p).size;
+      const ext = p.split(".").pop().toLowerCase().replace("jpg", "jpeg");
+      return [String(i), { url: pathToFileURL(p).href, contentType: `image/${ext}`, name: basename(p), size }];
+    }),
+  );
   // Every <@id> in the text is a mentioned user, like Discord's message.mentions.users.
   const mentioned = [...content.matchAll(/<@!?(\d+)>/g)].map((m) => m[1]);
   const message = {
@@ -244,6 +265,11 @@ async function postMessage(text, { mention, author = "driver" }) {
     author: { id, bot: false, username: name, globalName: name },
     member: { displayName: name },
     mentions: { users: new Map(mentioned.map((uid) => [uid, { id: uid, username: `user${uid}`, globalName: `user${uid}` }])), members: new Map() },
+    attachments,
+    reference: null,
+    async fetchReference() {
+      throw new Error("no reference");
+    },
     channel: {
       async sendTyping() {
         captured.push({ kind: "typing" });
@@ -368,7 +394,17 @@ function splitArgs(line) {
 async function runSeq(rest) {
   if (!rest.length) usage('seq needs commands, e.g. seq "cmd dota live start position=5" "component live:suggest"');
   const steps = [];
+  const buttonsOf = (step) =>
+    (step?.responses ?? []).flatMap((r) => (r.components ?? []).flatMap((row) => (row.components ?? []).filter((c) => c.custom_id)));
   for (const line of rest) {
+    // "click 2" presses the 2nd button of the previous step's reply (for buttons with generated ids).
+    const click = /^click\s+(\d+)$/.exec(line.trim());
+    if (click) {
+      const button = buttonsOf(steps[steps.length - 1])[Number(click[1]) - 1];
+      if (!button) usage(`seq step "${line}": the previous reply has no button ${click[1]}`);
+      steps.push({ line: `${line} (${button.label}: ${button.custom_id})`, ...(await runComponent([button.custom_id])) });
+      continue;
+    }
     const [stepMode, ...stepArgs] = splitArgs(line);
     const run = { cmd: runCmd, component: runComponent, message: runMessage, say: (r) => runMessage(r, { mention: false }) }[stepMode];
     if (!run) usage(`seq step "${line}": use cmd, component, message or say`);

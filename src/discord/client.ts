@@ -18,6 +18,7 @@ import { VERSION } from "../shared/version.js";
 import { commands } from "./commands/index.js";
 import { renderAsk } from "./components/ask.render.js";
 import { PROVIDER_UNAVAILABLE_MESSAGE, UNEXPECTED_ERROR_MESSAGE, renderHeroNotFound } from "./components/embeds.js";
+import { messageImages } from "./attachments.js";
 import { findComponentHandler } from "./components/handlers.js";
 
 export function userMessageFor(err: unknown): string {
@@ -126,6 +127,7 @@ export async function handleMessage(message: Message, botUserId: string, trigger
   if (message.author.bot) return;
   const text = extractQuestion(message.content, message.mentions.users.has(botUserId), botUserId, triggerNames);
   if (text === null) return;
+  const images = await messageImages(message);
   const started = Date.now();
   try {
     if ("sendTyping" in message.channel) await message.channel.sendTyping().catch(() => undefined);
@@ -136,7 +138,7 @@ export async function handleMessage(message: Message, botUserId: string, trigger
       names: Object.fromEntries(
         [...message.mentions.users.values()].map((u) => [u.id, message.mentions.members?.get(u.id)?.displayName ?? u.globalName ?? u.username]),
       ),
-    });
+    }, images);
     await message.reply({ ...renderAsk(result), allowedMentions: { parse: [], repliedUser: false } });
     logger.info("mention handled", { kind: result.kind, intent: "intent" in result ? result.intent?.intent : undefined, latencyMs: Date.now() - started });
   } catch (err) {

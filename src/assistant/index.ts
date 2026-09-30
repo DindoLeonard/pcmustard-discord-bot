@@ -23,4 +23,5 @@ export const askService = new AskService(
   memory,
   (ref, requesterId, nameOf) => resolvePlayerRef(ref, playerLinks, requesterId, nameOf),
   liveDrafts,
+  env.VISION_MODEL,
 );

@@ -1,9 +1,10 @@
 import { MessageFlags, type ButtonInteraction, type StringSelectMenuInteraction } from "discord.js";
 import { ai } from "../../ai/ai.service.js";
-import { assistant, liveDrafts, playerLinks } from "../../assistant/index.js";
+import { askService, assistant, liveDrafts, playerLinks } from "../../assistant/index.js";
 import { liveKey } from "../commands/dota/live.js";
 import { dota } from "../../games/registry.js";
 import { UserInputError } from "../../shared/errors.js";
+import { renderAsk } from "./ask.render.js";
 import { renderCounter } from "./counter.render.js";
 import { decodeDraft, idList, parseCustomId, positionArg } from "./customIds.js";
 import { renderDraft, renderTeams, renderWhyNot } from "./draft.render.js";
@@ -94,6 +95,18 @@ const handlers: Record<string, Handler> = {
   "live:end": async (interaction) => {
     const by = clicker(interaction);
     await interaction.update(renderLiveEnded(liveDrafts.end(liveKey(interaction)), by));
+  },
+  // "Which side are you on?" after a draft screenshot: remove the buttons, then answer publicly.
+  "img:side": async (interaction, [token, side]) => {
+    if (side !== "radiant" && side !== "dire") throw new UserInputError("That button is out of date.");
+    const by = clicker(interaction);
+    await interaction.update({ content: `${interaction.message.content}\n-# ${by}: we're ${side === "radiant" ? "Radiant" : "Dire"}`, components: [] });
+    const result = await askService.resolveScreenshotSide(token!, side, {
+      key: liveKey(interaction),
+      author: by,
+      userId: interaction.user.id,
+    });
+    await interaction.followUp(renderAsk(result));
   },
   "draft:whynot": async (interaction, args) => {
     if (!interaction.isStringSelectMenu()) return;

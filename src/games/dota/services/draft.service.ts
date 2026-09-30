@@ -60,7 +60,7 @@ export class DraftService {
   /** Lineup analysis without pick candidates: "what are we missing?", "how should we adjust?". */
   async analyzeTeams(input: Pick<DraftInput, "allies" | "enemies">): Promise<TeamsAnalysis> {
     const [allies, enemies] = await Promise.all([this.resolveAll(input.allies), this.resolveAll(input.enemies)]);
-    validateDraft(allies, enemies);
+    validateDraft(allies, enemies, 5); // a team analysis may include the asker's own pick
     const all = await this.heroes.list();
     return {
       allies: analyzeTeam(allies, enemies),
@@ -77,8 +77,11 @@ export class DraftService {
   }
 }
 
-export function validateDraft(allies: DotaHero[], enemies: DotaHero[]): void {
-  if (allies.length > MAX_ALLIES) throw new InvalidDraftError(`You can list at most ${MAX_ALLIES} allies (you are the 5th pick).`);
+/** `maxAllies` is 4 when the asker still has to pick (they're the 5th), 5 for a finished lineup. */
+export function validateDraft(allies: DotaHero[], enemies: DotaHero[], maxAllies = MAX_ALLIES): void {
+  if (allies.length > maxAllies) {
+    throw new InvalidDraftError(maxAllies === MAX_ALLIES ? `You can list at most ${MAX_ALLIES} allies (you are the 5th pick).` : `A team has at most ${maxAllies} heroes.`);
+  }
   if (enemies.length > MAX_ENEMIES) throw new InvalidDraftError(`You can list at most ${MAX_ENEMIES} enemies.`);
   if (allies.length + enemies.length === 0) throw new InvalidDraftError("Add at least one allied or enemy hero.");
   const dupes = (list: DotaHero[]) => list.filter((h, i) => list.findIndex((x) => x.id === h.id) !== i);

@@ -135,6 +135,7 @@ const OTHER_GAME: ParsedIntent = {
   players: [],
   matchId: null,
   bracket: null,
+  image: null,
   continuesDraft: false,
 };
 

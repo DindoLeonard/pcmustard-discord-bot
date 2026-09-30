@@ -105,10 +105,18 @@ export class OpenAIProvider implements AIProvider {
   async generateResponse<T>(input: AIRequest<T>): Promise<AIResponse<T>> {
     const started = Date.now();
     const body: Record<string, unknown> = {
-      model: this.model,
+      model: input.model ?? this.model,
       messages: [
         { role: "system", content: input.system },
-        { role: "user", content: input.user },
+        {
+          role: "user",
+          content: input.images?.length
+            ? [
+                { type: "text", text: input.user },
+                ...input.images.map((img) => ({ type: "image_url", image_url: { url: img.dataUrl, detail: img.detail ?? "auto" } })),
+              ]
+            : input.user,
+        },
       ],
       response_format: {
         type: "json_schema",
@@ -116,7 +124,7 @@ export class OpenAIProvider implements AIProvider {
       },
     };
     if (input.maxOutputTokens) body.max_completion_tokens = input.maxOutputTokens;
-    if (this.reasoningEffort && supportsReasoningEffort(this.model)) body.reasoning_effort = this.reasoningEffort;
+    if (this.reasoningEffort && supportsReasoningEffort(input.model ?? this.model)) body.reasoning_effort = this.reasoningEffort;
 
     let res: Response;
     try {

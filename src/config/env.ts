@@ -21,6 +21,8 @@ const baseSchema = z.object({
     .transform((v) => !["false", "0", "no", "off", ""].includes(v.trim().toLowerCase())),
   WEB_SEARCH_MODEL: optional,
   WEB_SEARCH_TIMEOUT_MS: z.coerce.number().int().positive().default(45_000),
+  /** Stronger model used only to read heroes from draft screenshots (the chat model is much worse at portraits). */
+  VISION_MODEL: z.string().min(1).default("gpt-5.4"),
   /** Shared per-channel conversation memory for /ask, @mentions and trigger names. */
   MEMORY_MAX_TURNS: z.coerce.number().int().min(0).max(50).default(6),
   MEMORY_TTL_MINUTES: z.coerce.number().positive().default(30),

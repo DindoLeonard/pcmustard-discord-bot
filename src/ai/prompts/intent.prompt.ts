@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { AIRequest } from "../types.js";
+import type { AIImage, AIRequest } from "../types.js";
 
 export const GAME_INTENTS = [
   "counter_character",
@@ -46,6 +46,17 @@ export const intentSchema = z.object({
   matchId: z.string().nullable().describe("Match ID or match link from the NEW MESSAGE for match_review, as written"),
   bracket: z.number().int().min(1).max(8).nullable().describe("Rank bracket if mentioned: 1 Herald, 2 Guardian, 3 Crusader, 4 Archon, 5 Legend, 6 Ancient, 7 Divine, 8 Immortal"),
   continuesDraft: z.boolean().describe("true if the NEW MESSAGE builds on the draft lineup from CONVERSATION SO FAR"),
+  image: z
+    .object({
+      kind: z.enum(["dota_draft", "dota_other", "other"]).describe("dota_draft = a Dota 2 pick/ban screen or a list of both teams' heroes"),
+      description: z.string().describe("What the image shows, 1-3 sentences, specific (names, numbers, UI) so someone who can't see it understands"),
+      visibleText: z.string().describe("Important readable text in the image, or empty"),
+      radiant: z.array(z.string()).describe("dota_draft: heroes picked by Radiant (left side), English names, only ones you can identify"),
+      dire: z.array(z.string()).describe("dota_draft: heroes picked by Dire (right side)"),
+      askerSide: z.enum(["radiant", "dire", "unknown"]).describe("Which team the asker is on, if the image or message shows it (their name highlighted, 'we are dire'); else unknown"),
+    })
+    .nullable()
+    .describe("Only when IMAGES are attached; otherwise null"),
 });
 
 export type ParsedIntent = z.infer<typeof intentSchema>;
@@ -84,13 +95,24 @@ Follow-ups (when CONVERSATION SO FAR is given):
 - continuesDraft = true when the message adds to, changes, or asks about the draft being discussed ("they also picked Oracle", "pos 4", "why not Lich?", "we swapped Lion for Lich" -> enemies/allies [Lich], removed [Lion]). If the message starts a new lineup or is unrelated, continuesDraft = false. A message that lists heroes for BOTH teams is a new lineup (continuesDraft = false), even if a draft was discussed before.
 - If the message is unrelated to earlier turns, ignore the history.`;
 
-export function intentPrompt(text: string, history = ""): AIRequest<ParsedIntent> {
+const IMAGE_RULES = `
+
+IMAGES are attached to the NEW MESSAGE. Fill "image" (never null here):
+- A Dota 2 draft / pick screen: kind "dota_draft". Radiant is the LEFT team, Dire the RIGHT team. List only heroes you can clearly identify from portraits or names; leave out empty or unclear slots. (A stronger model re-reads the portraits afterwards; your job is mainly to recognise that this IS a draft screen.)
+- askerSide: set it only if you can tell (the asker's name is highlighted on one side, or the message says "we're Radiant/Dire"). Otherwise "unknown".
+- For a draft image, choose the intent from the message: "what should I pick" -> pick_recommendation; otherwise draft_analysis. Leave allies/enemies empty (the bot fills them from the image once the side is known).
+- Any other image: describe it in "description", copy key text to "visibleText", and pick the intent from the message (e.g. general_strategy for a Dota question about a screenshot, small_talk or web_lookup otherwise). With no text, assume the user wants to know what you think of the image.`;
+
+export function intentPrompt(text: string, history = "", images: AIImage[] = [], askerName?: string): AIRequest<ParsedIntent> {
+  const message = text.trim() || (images.length ? "(no text, just the attached image)" : "");
+  const asker = images.length && askerName ? `ASKER'S NAME: ${askerName}\n` : "";
   return {
     task: "intent.parse",
     schemaName: "game_intent",
     schema: intentSchema,
-    system: SYSTEM,
-    user: history ? `${history}\n\nNEW MESSAGE:\n${text.slice(0, 1500)}` : text.slice(0, 1500),
-    maxOutputTokens: 700,
+    system: SYSTEM + (images.length ? IMAGE_RULES : "\n\nNo images are attached: set \"image\" to null."),
+    user: `${asker}${history ? `${history}\n\nNEW MESSAGE:\n` : ""}${message.slice(0, 1500)}`,
+    maxOutputTokens: images.length ? 1100 : 700,
+    images,
   };
 }
